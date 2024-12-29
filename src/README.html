@@ -1,0 +1,73 @@
+<h1>k40xw</h1>
+
+<p>I wanted an simple GUI to do some human QA on gcode before it went to the X-Tool D1.</p>
+
+<p>k40xw is leveraged from Scorch's original <a href="https://www.scorchworks.com/K40whisperer/k40whisperer.html">K40 Whisperer</a></p>
+
+<h1>Why K40 Whisperer?</h1>
+
+<p>K40 Whisperer is plain old python and tkinter. The code base is small enough
+to get your head around quickly.</p>
+
+<p>It has is a laser cutter specific GUI that supports reading gcode, dxf, svg, and png.</p>
+
+<p>Sometimes you appreciate the future better by dwelling in the past now and then.</p>
+
+<p>So here's how it went:</p>
+
+<ul>
+<li>Start with <a href="https://www.scorchworks.com/K40whisperer/k40whisperer.html">K40 Whisperer</a></li>
+<li>Tease in some separation between
+<ul>
+<li>egv</li>
+<li>ecoords</li>
+<li>file  i/o</li>
+</ul></li>
+<li>make a machine base class for K40 Whisperer
+<ul>
+<li>make an xtool D1 driver class</li>
+</ul></li>
+</ul>
+
+<h1>Usage Examples</h1>
+
+<pre><code>python3  k40_whisperer.py
+
+python3  k40_whisperer.py  -d --file ../test/myshape.gcode
+
+python3  k40_whisperer.py  -d --file ../test/Drawing1.DXF --units Inches
+</code></pre>
+
+<h1>notes</h1>
+
+<p>The GUI use inch units. Y increases upward.</p>
+
+<p>The gcode ripper is set to scale coordinates to inch when it reads. </p>
+
+<p>Same for the DXF reader.</p>
+
+<p>The machine class expects inch data and scales it appropriatly before sending
+to hardware.</p>
+
+<p>Same for Y flipping, the machine class does the flip... and flip induced Y offset ... </p>
+
+<p>To understand K40, egv, LHYMICRO-GL, you have to check these out. Also good
+learnings about python and API design in general:</p>
+
+<ul>
+<li><a href="https://github.com/K40Nano/K40Nano">K40Nano</a></li>
+<li><a href="https://github.com/K40Nano/K40Tools">K40Tools</a></li>
+</ul>
+
+<h1>moving forward</h1>
+
+<p>More current alternatives:</p>
+
+<ul>
+<li><p>java, https://github.com/t-oster/VisiCut</p></li>
+<li><p>python, https://github.com/meerk40t/meerk40t</p></li>
+</ul>
+
+<h1>Licesne</h1>
+
+<p>GPL-V3 per Scorch's orignal K40 Whisperer</p>

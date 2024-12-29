@@ -1,8 +1,11 @@
 #!/usr/bin/python
 """
-    K40 Whisperer
+    K40X Whisperer with X-Tool D1 support
+    Copyright (C) 2024  whodafloater
 
+    K40 Whisperer
     Copyright (C) <2017-2023>  <Scorch>
+
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
     the Free Software Foundation, either version 3 of the License, or

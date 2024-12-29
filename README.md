@@ -27,11 +27,21 @@ So here's how it went:
 
 # Usage Examples
 
-    python3  k40_whisperer.py
+    python3 k40_whisperer.py
 
-    python3  k40_whisperer.py  -d --file ../test/myshape.gcode
+    python3 k40_whisperer.py -d --file ../test/Drawing1.DXF --units Inches
 
-    python3  k40_whisperer.py  -d --file ../test/Drawing1.DXF --units Inches
+    python3 k40_whisperer.py --ip 192.168.0.106 --file ../test/myshape.gcode
+
+
+    Usage: python3 k40_whisperer.py [options]
+    --help, -h   : print this help
+    --ip         : machine IP address
+    --file       : drawing or gcode file to load on startup
+    --units      : for DXF file read
+    --pi, -p     : Small screen option (for small raspberry pi display)
+    --debug, -d  : turn on debug output)
+
 
 # notes
 

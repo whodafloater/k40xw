@@ -6227,7 +6227,7 @@ if __name__ == "__main__":
     for option, value in opts:
         if option in ('-h','--help'):
             print(' ')
-            print('Usage: python k40_whisperer.py [options]')
+            print('Usage: python3 k40_whisperer.py [options]')
             print('--help, -h   : print this help')
             print('--ip         : machine IP address')
             print('--file       : drawing or gcode file to load on startup')

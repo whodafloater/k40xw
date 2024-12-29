@@ -20,6 +20,8 @@
 version = '0.01'
 title_text = "K40X Whisperer for X-Tool D1 V"+version
 
+DEBUG = False
+
 import sys
 from math import *
 from egv import egv

@@ -253,6 +253,14 @@ class xtool_CLASS:
 
 
     def wait_for_laser_to_finish(self,update_gui=None,stop_calc=None):
+
+        if self.online_status == False:
+            elapsed = time.time() - self.mark
+            self.mark = 0
+            msg = f'Offline Job Finished. Elapsed:{elapsed:6.1f}sec  machine state:{self.state}'
+            update_gui(msg)
+            return
+
         FINISHED = False
         while not FINISHED:
             self.update_state()

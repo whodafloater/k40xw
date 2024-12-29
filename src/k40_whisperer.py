@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!python3
 """
     K40X Whisperer with X-Tool D1 support
     Copyright (C) 2024  whodafloater
@@ -23,7 +23,7 @@
 version = '0.01'
 title_text = "K40X Whisperer for X-Tool D1 V"+version
 
-DEBUG = False
+#DEBUG = False
 
 import sys
 from math import *
@@ -134,15 +134,18 @@ class Application(Frame):
         self.createWidgets()
         self.micro = False
 
-        print(f'Applicatiion init, args = {args}')
+        if DEBUG: print(f'Application init, args = {args}')
 
         units = None
+        self.ipaddr = '192.168.0.106'
+
         for option, value in opts:
             if option == '--units':
                 units = value
+            if option == '--ip':
+                self.ipaddr = value
 
         for option, value in opts:
-            print(f' {option} {value}')
             if option == '--file':
                 self.fileload(value, units=units)
 
@@ -1894,7 +1897,7 @@ class Application(Frame):
         self.update_gui("Opening '%s'" % fileselect )
         TYPE=fileExtension.upper()
         if TYPE=='.DXF':
-            print(f'    units={units}')
+            #print(f'    units={units}')
             self.Open_DXF(fileselect, units=units)
         elif TYPE=='.SVG':
             self.Open_SVG(fileselect)
@@ -2522,10 +2525,11 @@ class Application(Frame):
         dxf_engrave_coords = dxf_import.DXF_COORDS_GET_TYPE(engrave=True, new_origin=False)
         dxf_cut_coords     = dxf_import.DXF_COORDS_GET_TYPE(engrave=False,new_origin=False)
 
-        print("dxf engraves")
-        print(dxf_engrave_coords)
-        print("dxf cuts")
-        print(dxf_cut_coords)
+        if DEBUG:
+           print("dxf engraves")
+           print(dxf_engrave_coords)
+           print("dxf cuts")
+           print(dxf_cut_coords)
 
 ##        if DEBUG:
 ##            dxf_code = dxf_import.WriteDXF(close_loops=False)
@@ -4087,9 +4091,12 @@ class Application(Frame):
         self.Release_USB()
         self.k40=None
         self.move_head_window_temporary([0.0,0.0])      
+
         #self.k40=K40_CLASS()
-        self.k40=xtool_CLASS()
         #self.k40=MachineBase()
+        self.k40=xtool_CLASS()
+        self.k40.IP = self.ipaddr
+
         try:
             self.k40.initialize_device()
             self.k40.say_hello()
@@ -5148,7 +5155,7 @@ class Application(Frame):
             self.pos_offset = new_pos_offset
             self.menu_View_Refresh()
 
-        print(f'   move_head_window_temporary: pos_offset (mils) = {self.pos_offset}')
+        #print(f'   move_head_window_temporary: pos_offset (mils) = {self.pos_offset}')
     
     ################################################################################
     #                         General Settings Window                              #
@@ -6149,6 +6156,8 @@ class pxpiDialog(tkSimpleDialog.Dialog):
 
 if __name__ == "__main__":
 
+    global DEBUG
+
     root = Tk()
 
     try:
@@ -6205,22 +6214,26 @@ if __name__ == "__main__":
 
     opts, args = None, None
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hpd",["help", "pi", "debug", "file=", "units="])
+        opts, args = getopt.getopt(sys.argv[1:], "hpd",["help", "pi", "debug", "file=", "units=", "ip="])
     except:
         print('Unable interpret command line options')
         sys.exit()
 
-    print(opts)
-    print(args)
+    #print(opts)
+    #print(args)
     pimode = False;
     DEBUG = False
 
     for option, value in opts:
         if option in ('-h','--help'):
             print(' ')
-            print('Usage: python k40_whisperer.py [-h -p]')
-            print('-h    : print this help (also --help)')
-            print('-p    : Small screen option (for small raspberry pi display) (also --pi)')
+            print('Usage: python k40_whisperer.py [options]')
+            print('--help, -h   : print this help')
+            print('--ip         : machine IP address')
+            print('--file       : drawing or gcode file to load on startup')
+            print('--units      : for DXF file read')
+            print('--pi, -p     : Small screen option (for small raspberry pi display)')
+            print('--debug, -d  : turn on debug output)')
             sys.exit()
         elif option in ('-p','--pi'):
             print("pi mode")
@@ -6229,7 +6242,7 @@ if __name__ == "__main__":
             DEBUG=True
         elif option in ('-f','--file'):
             filetoload = value
-            print(f'filetoload = {filetoload}')
+            #print(f'filetoload = {filetoload}')
 
     if DEBUG:
         import inspect

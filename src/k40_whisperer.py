@@ -17,8 +17,8 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 """
-version = '0.68'
-title_text = "K40 Whisperer V"+version
+version = '0.01'
+title_text = "K40X Whisperer for X-Tool D1 V"+version
 
 import sys
 from math import *
@@ -4229,9 +4229,10 @@ class Application(Frame):
         
 
     def menu_Help_About(self):
-        application="K40 Whisperer"
+        application="K40X Whisperer for X-Tool D1"
         about = "%s Version %s\n\n" %(application,version)
-        about = about + "By Scorch.\n"
+        about = about + "https://github.com/whodafloater/k40xw/\n\n"
+        about = about + "Original K40 By Scorch.\n"
         about = about + "\163\143\157\162\143\150\100\163\143\157\162"
         about = about + "\143\150\167\157\162\153\163\056\143\157\155\n"
         about = about + "https://www.scorchworks.com/\n\n"

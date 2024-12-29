@@ -25,7 +25,13 @@ So here's how it went:
 * make a machine base class for K40 Whisperer
     * make an xtool D1 driver class
 
+# Usage Examples
 
+    python3  k40_whisperer.py
+
+    python3  k40_whisperer.py  -d --file ../test/myshape.gcode
+
+    python3  k40_whisperer.py  -d --file ../test/Drawing1.DXF --units Inches
 
 # notes
 

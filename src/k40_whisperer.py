@@ -2446,8 +2446,8 @@ class Application(Frame):
             message_box(msg1, "%s\n%s" %(msg2,msg3))
             debug_message(traceback.format_exc())
 
-        for line in g_rip.g_code_data:
-            print(f'gcode data: {line}')
+        #for line in g_rip.g_code_data:
+        #    print(f'gcode data: {line}')
 
         ecoords= g_rip.generate_laser_paths(
               g_rip.g_code_data,
@@ -3546,6 +3546,8 @@ class Application(Frame):
             self.statusbar.configure( bg = 'red' ) 
             return
 
+        print(f'send_data: dialect = {self.k40.dialect}')
+
         if self.k40.dialect == 'egv':
             data = self.prep_egv_data(operation_type)
             self.send_machine_data(data, 1)
@@ -3628,6 +3630,7 @@ class Application(Frame):
         return startx, starty, FlipXoffset, Rapid_Feed
 
     def prep_ecoord_data(self, operation_type=None):
+        print('prep_ecoord_data:' + operation_type)
 
         cutcoords = [None] * 6
         passes = [None] * 6
@@ -3647,8 +3650,13 @@ class Application(Frame):
             self.statusMessage.set("Vector Cut: Determining Cut Order....")
             self.master.update()
 
+            print(f'prep_ecooord_data: {self.VcutData.ecoords}')
+
+            if not self.VcutData.sorted and self.inside_first.get():
+                self.VcutData.set_ecoords(self.optimize_paths(self.VcutData.ecoords),data_sorted=True)
             self.VcutData.add_feed(rapid, feed, power)
-            self.VcutData.set_ecoords(self.optimize_paths(self.VcutData.ecoords),data_sorted=True)
+
+            print(self.VcutData.ecoords)
 
             cutcoords[0] = self.VcutData.ecoords
             passes[0] = int(float(self.Vcut_passes.get()))
@@ -3661,8 +3669,9 @@ class Application(Frame):
             self.statusMessage.set("Vector Eng: Determining Cut Order....")
             self.master.update()
 
+            if not self.VengData.sorted and self.inside_first.get():
+               self.VengData.set_ecoords(self.optimize_paths(self.VengData.ecoords),data_sorted=True)
             self.VengData.add_feed(rapid, feed, power)
-            self.VengData.set_ecoords(self.optimize_paths(self.VengData.ecoords),data_sorted=True)
 
             cutcoords[1] = self.VengData.ecoords
             passes[1] = int(float(self.Veng_passes.get()))
@@ -3675,8 +3684,9 @@ class Application(Frame):
             self.statusMessage.set("Raster Eng: Determining Cut Order....")
             self.master.update()
 
+            if not self.RengData.sorted and self.inside_first.get():
+               self.RengData.set_ecoords(self.optimize_paths(self.RengData.ecoords),data_sorted=True)
             self.RengData.add_feed(rapid, feed, power)
-            self.RengData.set_ecoords(self.optimize_paths(self.RengData.ecoords),data_sorted=True)
 
             cutcoords[2] = self.RengData.ecoords
             passes[2] = int(float(self.Reng_passes.get()))
@@ -3956,6 +3966,7 @@ class Application(Frame):
     def send_egv_data(self,data,num_passes=1):        
         pre_process_CRC        = self.pre_pr_crc.get()
         if self.k40 != None:
+            print(f'send_egv_data: dialect = {self.k40.dialect}')
             self.k40.timeout       = int(float( self.t_timeout.get()  )) 
             self.k40.n_timeouts    = int(float( self.n_timeouts.get() ))
             time_start = time()

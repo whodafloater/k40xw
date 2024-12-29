@@ -313,8 +313,6 @@ class xtool_CLASS:
 
          #print(f'ecoord_to_gcode: data={data}')
 
-         cutfeed = data[0][3]
-         rapidfeed = data[0][3]
          feed = data[1][3] * 60   # mm/min
          rapid = self.linear_rapid * 60
          power = data[1][4] * self.spindle_power_scale * self.safety_power_scale
@@ -408,7 +406,7 @@ class xtool_CLASS:
 
          tot = 0
          for i in range(0,len(gcode)):
-              print(f'{segtime[i][0]:5.3f} sec  {gcode[i]}')
+              #print(f'{segtime[i][0]:5.3f} sec  {gcode[i]}')
               tot = tot + segtime[i][0]
 
          print(f'Total Time Est: {tot:0.1f} sec')

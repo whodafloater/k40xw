@@ -1,8 +1,8 @@
 #!/usr/bin/env python 
 '''
-This script comunicated with the K40 Laser Cutter.
+X-Tool D1 machine class for K40 Whisperer
 
-Copyright (C) 2017-2023 Scorch www.scorchworks.com
+Copyright (C) 2024 whodafloater
 
 This program is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by

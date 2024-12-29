@@ -23,7 +23,7 @@
 version = '0.01'
 title_text = "K40X Whisperer for X-Tool D1 V"+version
 
-#DEBUG = False
+DEBUG = False
 
 import sys
 from math import *
@@ -6156,7 +6156,7 @@ class pxpiDialog(tkSimpleDialog.Dialog):
 
 if __name__ == "__main__":
 
-    global DEBUG
+    #global DEBUG
 
     root = Tk()
 

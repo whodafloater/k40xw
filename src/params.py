@@ -7,7 +7,13 @@
 #    bounds checking
 #
 #    parameters are defined by a dict
-#        d[name] = [type, default, min, max, sfmt, ffmt]
+#        d[name] = [type, default, min, max, unit, sfmt, ffmt]
+#
+# scalar units:  mm, in, px, pct, u, rat, dpi
+# velocity units:  mm/sec, in/min
+# True strings have ffmt = ""
+# Numeric fields have a float format string, ffmt != ""
+# Numeric fields are strings so they can hold bad user input
 
 from tkinter import *
 from tkinter.filedialog import *
@@ -22,102 +28,95 @@ class Params:
         self.byline = "by Scorch - 2019, whodafloater 2024"
         self.version = "0.68"
 
-        p = []
-        p.append(['include_Reng', BooleanVar,   1, 0,    1, '%s', '%.0f'])
-        p.append(['LaserXsize',   StringVar,  325, 0, 4000, '%s', '%.0f'])
-
-        self.p = p
-
         d = dict()
         self.d = d
 
-        d['include_Reng']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['include_Rpth']      = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['include_Veng']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['include_Vcut']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['include_Gcde']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['include_Time']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
+        d['include_Reng']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['include_Rpth']      = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['include_Veng']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['include_Vcut']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['include_Gcde']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['include_Time']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
 
-        d['halftone']          = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['HomeUR']            = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['inputCSYS']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['advanced']          = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
+        d['halftone']          = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['HomeUR']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['inputCSYS']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['advanced']          = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
 
-        d['mirror']            = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['rotate']            = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['negate']            = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['engraveUP']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['init_home']         = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['post_home']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['post_beep']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['post_disp']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['post_exec']         = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
+        d['mirror']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['rotate']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['negate']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['engraveUP']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['init_home']         = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['post_home']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['post_beep']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['post_disp']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['post_exec']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
 
-        d['pre_pr_crc']        = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
-        d['inside_first']      = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
+        d['pre_pr_crc']        = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['inside_first']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
 
-        d['comb_engrave']      = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['comb_vector']       = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['zoom2image']        = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['rotary']            = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['reduced_mem']       = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
-        d['wait']              = [BooleanVar,   1, 0,    1, ":s", "%.0f"]
+        d['comb_engrave']      = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['comb_vector']       = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['zoom2image']        = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['rotary']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['reduced_mem']       = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['input_dpi']         = [StringVar,    1000, 100, 1000, "dpi", ":s", "%.0f"]
+        d['wait']              = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
 
-        d['trace_w_laser']     = [BooleanVar,   0, 0,    1, ":s", "%.0f"]
+        d['trace_w_laser']     = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
 
-        d['trace_gap']         = [StringVar,   0, 0,     1, ":s", "%.0f"]
-        d['trace_speed']       = [StringVar,   50, 0,    1, ":s", "%.0f"]
-
-
-        d['Reng_feed']         = [StringVar,   100, 0,    1, ":s", ":.0f"]
-        d['Veng_feed']         = [StringVar,   20, 0,    1, ":s", ":.0f"]
-        d['Vcut_feed']         = [StringVar,   10, 0,    1, ":s", ":.0f"]
-
-        d['Reng_pow']          = [StringVar,   5, 0,    1, ":s", ":.0f"]
-        d['Veng_pow']          = [StringVar,   5, 0,    1, ":s", ":.0f"]
-        d['Vcut_pow']          = [StringVar,   5, 0,    1, ":s", ":.0f"]
-        d['Reng_passes']       = [StringVar,   1, 0,    1, ":s", ":.0f"]
-        d['Veng_passes']       = [StringVar,   1, 0,    1, ":s", ":.0f"]
-        d['Vcut_passes']       = [StringVar,   1, 0,    1, ":s", ":.0f"]
-        d['Gcde_passes']       = [StringVar,   1, 0,    1, ":s", ":.0f"]
-
-        d['board_name']        = [StringVar,   "LASER-M2", 0,    1, ":s", ""]
-        d['units']             = [StringVar,   "mm", 0,    1, ":s", ""]
-
-        d['jog_step']          = [StringVar,   10, 0,     1, ":s", ":.0f"]
-        d['rast_step']         = [StringVar,   0.002, 0,  1, ":s", ":.0f"]
-        d['ht_size']           = [StringVar,   500, 0,    1, ":s", ":.0f"]
-
-        d['LaserXsize']        = [StringVar,   425, 0,    1, ":s", ":.0f"]
-        d['LaserYsize']        = [StringVar,   395, 0,    1, ":s", ":.0f"]
-        d['LaserXscale']       = [StringVar,   1.000, 0,  1, ":s", ":.3f"]
-        d['LaserYscale']       = [StringVar,   1.000, 0,  1, ":s", ":.3f"]
-        d['LaserRscale']       = [StringVar,   1.000, 0,  1, ":s", ":.3f"]
-
-        d['rapid_feed']        = [StringVar,   0.0, 0,    1, ":s", ":.0f"]
-        d['gotoX']             = [StringVar,   0.0, 0,    1, ":s", ":.3f"]
-        d['gotoY']             = [StringVar,   0.0, 0,    1, ":s", ":.3f"]
-
-        d['bezier_M1']         = [StringVar,   2.5, 0,    1, ":s", ":.3f"]
-        d['bezier_M2']         = [StringVar,   0.50, 0,   1, ":s", ":.3f"]
-        d['bezier_weight']     = [StringVar,   3.5, 0,    1, ":s", ":.3f"]
-
-        d['n_egv_passes']      = [StringVar,   1, 0,      1, ":s", ":.0f"]
+        d['trace_gap']         = [StringVar,   0, 0,     1, "mm",     ":s", "%.0f"]
+        d['trace_speed']       = [StringVar,   50, 0,   100, "mm/sec", ":s", "%.0f"]
 
 
-        d['t_timeout']         = [StringVar,   200, 0,    1, ":s", ":.0f"]
-        d['n_timeouts']        = [StringVar,   30, 0,     1, ":s", ":.0f"]
-        d['ink_timeout']       = [StringVar,   3, 0,      1, ":s", ":.0f"]
+        d['Reng_feed']         = [StringVar,   100, 0,  600, "mm/sec", ":s", ":.0f"]
+        d['Veng_feed']         = [StringVar,   20,  0,  600, "mm/sec", ":s", ":.0f"]
+        d['Vcut_feed']         = [StringVar,   10,  0,  600, "mm/sec", ":s", ":.0f"]
 
-        d['gcode_import_spindle_power_scale'] = [StringVar, 1, 0, 1, ":s", ":.3f"]
+        d['Reng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
+        d['Veng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
+        d['Vcut_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
+        d['Reng_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
+        d['Veng_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
+        d['Vcut_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
+        d['Gcde_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
 
-        d['designfile']        = [StringVar,   "../test/Drawing1.DXF", 0, 1, ":s", ""]
-        d['inkscape_path']     = [StringVar,   "", 0,    1, "%s", ""]
-        d['batch_path']        = [StringVar,   "", 0,    1, "%s", ""]
+        d['board_name']        = [StringVar,   "LASER-M2", 0, 1, "", ":s", ""]
+        d['units']             = [StringVar,   "mm", 0,    1,    "", ":s", ""]
 
+        d['jog_step']          = [StringVar,   10, 0.1,   100, "mm", ":s", ":.0f"]
+        d['rast_step']         = [StringVar,   0.002, 0,  1,   "in", ":s", ":.0f"]
+        d['ht_size']           = [StringVar,   500, 0,    1,   "px", ":s", ":.0f"]
 
-        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "%s", ":.0f"]  # in/min
-        d['min_raster_speed']  = [StringVar,   12,  12,   100, "%s", ":.0f"]  # in/min
+        d['LaserXsize']        = [StringVar,   425, 0,    1000, "mm", ":s", ":.0f"]
+        d['LaserYsize']        = [StringVar,   395, 0,    1000, "mm", ":s", ":.0f"]
+        d['LaserXscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
+        d['LaserYscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
+        d['LaserRscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
+
+        d['rapid_feed']        = [StringVar,   0.0, 1,   600, "mm/sec", ":s", ":.0f"]
+        d['gotoX']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", ":.3f"]
+        d['gotoY']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", ":.3f"]
+
+        d['bezier_M1']         = [StringVar,   2.5, 0,    1, "", ":s", ":.3f"]
+        d['bezier_M2']         = [StringVar,   0.50, 0,   1, "", ":s", ":.3f"]
+        d['bezier_weight']     = [StringVar,   3.5, 0,    1, "", ":s", ":.3f"]
+
+        d['n_egv_passes']      = [StringVar,   1, 0,      1, "u", ":s", ":.0f"]
+
+        d['t_timeout']         = [StringVar,   200, 0,    1, "sec", ":s", ":.0f"]
+        d['n_timeouts']        = [StringVar,   30, 0,     1, "u", ":s", ":.0f"]
+        d['ink_timeout']       = [StringVar,   3, 0,      1, "sec", ":s", ":.0f"]
+
+        d['gcode_import_spindle_power_scale'] = [StringVar, 1, 0, 1, "rat", ":s", ":.3f"]
+
+        d['designfile']        = [StringVar,   "../test/Drawing1.DXF", 0, 1, "", ":s", ""]
+        d['inkscape_path']     = [StringVar,   "", 0,    1, "", "%s", ""]
+        d['batch_path']        = [StringVar,   "", 0,    1, "", "%s", ""]
+
+        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "in/min", "%s", ":.0f"]  # in/min
+        d['min_raster_speed']  = [StringVar,   12,  12,   100, "in/min", "%s", ":.0f"]  # in/min
 
     # Did not need this... idea was to create a parameter class that
     # K40 W would subclass 
@@ -148,6 +147,8 @@ class Params:
 
         d = self.d
         for n in d:
+            if len(d[n]) != 7:
+               print(f'WARNING: parameter {n} is not fully defined in {__name__}')
             name = n
             objtype = d[n][0]
             value =   d[n][1]
@@ -174,8 +175,10 @@ class Params:
         for name in d:
             objtype = d[name][0]
             value = context.__dict__[name].get()
+            unit = d[name][4]
+            if unit == '': unit = '""'
 
-            ffmt = d[name][5]
+            ffmt = d[name][6]
 
             if objtype == BooleanVar:
                 value = int(value)
@@ -190,7 +193,7 @@ class Params:
             if value == '':
                 value = '""'
  
-            s = f'({self.ident} {name:13s} {str(value)} )'
+            s = f'({self.ident} {name:13s} {str(value)} {unit})'
             header.append(s)
 
         header.append("(=========================================================)")
@@ -216,9 +219,44 @@ class Params:
 
             name = f.pop(0)
             value = f.pop(0)
+            unit = f.pop(0)
 
             #print(f' name: {name:35s} | {value}')
             context.__dict__[name].set(value)
+
+    def convert(self, value, old, new):
+        if old == new: return 1
+
+        s = 1
+        dpi = self.d['input_dpi'][1]   # just the default
+
+        if '/min' in old:
+            s = s / 60
+        if 'in' in old:
+            s = s * 25.4
+        if 'dpi' in old:
+            s = s / 25.4
+            value = 1 / value
+        if 'px' in old:
+            s = 25.4/dpi
+
+        if 'in' in new:
+            s = s / 25.4
+        if '/min' in new:
+            s = s * 60
+        if 'dpi' in new:
+            s = s * 25.4
+            value = 1 / value
+        if 'px' in new:
+            s = dpi/25.4
+
+        return value * s
+
+    def speed_check(self, name, value):
+        # min_vector_speed
+        # min_raster_speed
+        pass
+
 
 
 class TestApp:
@@ -288,7 +326,6 @@ class TestApp:
         self.statusMessage.set("File Saved: %s" %(filename))
         self.statusbar.configure( bg = 'white' )
 
-
 if __name__ == "__main__":
 
     root = Tk()
@@ -312,5 +349,12 @@ if __name__ == "__main__":
 
     print(f't    units = {t.units.get()}');
     print(f't2   units = {t2.units.get()}');
+
+    assert(abs(t.p.convert(1.0, 'in', 'mm') - 25.4) < 1e-9)
+    assert(abs(t.p.convert(25.4, 'mm', 'in') - 1.0) < 1e-9)
+    assert(abs(t.p.convert(10, 'mm/sec', 'in/min') - 10*60/25.4) < 1e-9)
+    assert(abs(t.p.convert(10, 'in/min', 'mm/sec') - 10*25.4/60) < 1e-9)
+    assert(abs(t.p.convert(10, 'px', 'mm') - 10/int(t.input_dpi.get())*25.4) < 1e-9)
+        
 
     #root.mainloop()

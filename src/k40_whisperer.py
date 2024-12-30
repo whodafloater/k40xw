@@ -255,165 +255,19 @@ class Application(Frame):
         self.master.bind('<Escape>'    , self.Stop)
         self.master.bind('<Control-t>' , self.TRACE_Settings_Window)
 
-        #self.include_Reng = BooleanVar()
-        #self.include_Rpth = BooleanVar()
-        #self.include_Veng = BooleanVar()
-        #self.include_Vcut = BooleanVar()
-        #self.include_Gcde = BooleanVar()
-        #self.include_Time = BooleanVar()
-
-        #self.advanced = BooleanVar()
-        
-        #self.halftone     = BooleanVar()
-        #self.mirror       = BooleanVar()
-        #self.rotate       = BooleanVar()
-        #self.negate       = BooleanVar()
-        #self.inputCSYS    = BooleanVar()
-        #self.HomeUR       = BooleanVar()
-        #self.engraveUP    = BooleanVar()
-        #self.init_home    = BooleanVar()
-        #self.post_home    = BooleanVar()
-        #self.post_beep    = BooleanVar()
-        #self.post_disp    = BooleanVar()
-        #self.post_exec    = BooleanVar()
-        
-        #self.pre_pr_crc   = BooleanVar()
-        #self.inside_first = BooleanVar()
-        #self.rotary       = BooleanVar()
-        #self.reduced_mem  = BooleanVar()
-        #self.wait         = BooleanVar()
-        
-
-        #self.ht_size    = StringVar()
-        #self.Reng_feed  = StringVar()
-        #self.Veng_feed  = StringVar()
-        #self.Vcut_feed  = StringVar()
-
-        #self.Reng_pow   = StringVar()
-        #self.Veng_pow   = StringVar()
-        #self.Vcut_pow   = StringVar()
-
-        #self.Reng_passes = StringVar()
-        #self.Veng_passes = StringVar()
-        #self.Vcut_passes = StringVar()
-        #self.Gcde_passes = StringVar()
-        
-        
-        #self.board_name = StringVar()
-        #self.units      = StringVar()
-        #self.jog_step   = StringVar()
-        #self.rast_step  = StringVar()
         self.funits     = StringVar()
-        
-
-        #self.bezier_M1     = StringVar()
-        #self.bezier_M2     = StringVar()
-        #self.bezier_weight = StringVar()
-
-##        self.unsharp_flag = BooleanVar()
-##        self.unsharp_r    = StringVar()
-##        self.unsharp_p    = StringVar()
-##        self.unsharp_t    = StringVar()
-##        self.unsharp_flag.set(False)
-##        self.unsharp_r.set("40")
-##        self.unsharp_p.set("350")
-##        self.unsharp_t.set("3")
-
-        #self.LaserXsize = StringVar()
-        #self.LaserYsize = StringVar()
-
-        #self.LaserXscale = StringVar()
-        #self.LaserYscale = StringVar()
-        #self.LaserRscale = StringVar()
-
-        #self.rapid_feed = StringVar()
-
-        #self.gotoX = StringVar()
-        #self.gotoY = StringVar()
-
-        #self.n_egv_passes = StringVar()
-
-        #self.inkscape_path = StringVar()
-        #self.batch_path    = StringVar()
-        #self.ink_timeout   = StringVar()
-        
-        #self.t_timeout  = StringVar()
-        #self.n_timeouts  = StringVar()
-        
         self.Reng_time = StringVar()
         self.Veng_time = StringVar()
         self.Vcut_time = StringVar()
         self.Gcde_time = StringVar()
 
-        self.comb_engrave = BooleanVar()
-        self.comb_vector  = BooleanVar()
-        self.zoom2image   = BooleanVar()
-
-        self.trace_w_laser  = BooleanVar()
-        self.trace_gap      = StringVar()
-        self.trace_speed    = StringVar()
-
-        self.gcode_import_spindle_power_scale = StringVar();
-        
         ###########################################################################
         #                         INITILIZE VARIABLES                             #
         #    if you want to change a default setting this is the place to do it   #
         ###########################################################################
-#        self.include_Reng.set(1)
-#        self.include_Rpth.set(0)
-#        self.include_Veng.set(1)
-#        self.include_Vcut.set(1)
-#        self.include_Gcde.set(1)
-#        self.include_Time.set(1)
-#        self.advanced.set(0)
-#        
-#        self.halftone.set(1)
-#        self.mirror.set(0)
-#        self.rotate.set(0)
-#        self.negate.set(0)
-#        self.inputCSYS.set(0)
-#        self.HomeUR.set(0)
-#        self.engraveUP.set(0)
-#        self.init_home.set(1)
-#        self.post_home.set(0)
-#        self.post_beep.set(0)
-#        self.post_disp.set(0)
-#        self.post_exec.set(0)
-#        
-#        self.pre_pr_crc.set(1)
-#        self.inside_first.set(1)
-#        self.rotary.set(0)
-#        self.reduced_mem.set(0)
-#        self.wait.set(1)
-#        
-#        self.ht_size.set(500)
-#
-#        self.Reng_feed.set("100")
-#        self.Veng_feed.set("20")
-#        self.Vcut_feed.set("10")
-#
-#        self.Reng_pow.set("5")
-#        self.Veng_pow.set("5")
-#        self.Vcut_pow.set("5")
-#
-#        self.Reng_passes.set("1")
-#        self.Veng_passes.set("1")
-#        self.Vcut_passes.set("1")
-#        self.Gcde_passes.set("1")
-#        
-#        
-#        self.jog_step.set("10.0")
-#        self.rast_step.set("0.002")
-#        
-#        self.bezier_weight.set("3.5")
-#        self.bezier_M1.set("2.5")
-#        self.bezier_M2.set("0.50")
-#
-#        self.bezier_weight_default = float(self.bezier_weight.get())
-#        self.bezier_M1_default     = float(self.bezier_M1.get())
-#        self.bezier_M2_default     = float(self.bezier_M2.get())
-#        
-#                                        
+        #
+        # moved configurable param initial values to params.py
+
 #        self.board_name.set("LASER-M2") # Options are
 #                                        #    "LASER-M2",
 #                                        #    "LASER-M1",
@@ -422,14 +276,8 @@ class Application(Frame):
 #                                        #    "LASER-B1",
 #                                        #    "LASER-B",
 #                                        #    "LASER-A"
-#
-#
 #        self.units.set("mm")            # Options are "in" and "mm"
-#
-#        self.ink_timeout.set("3")
-#        self.t_timeout.set("200")
-#        self.n_timeouts.set("30")
-#
+
         self.HOME_DIR    = os.path.expanduser("~")
         
         if not os.path.isdir(self.HOME_DIR):
@@ -440,30 +288,6 @@ class Application(Frame):
         
         self.aspect_ratio =  0
         self.segID   = []
-#        
-#        self.LaserXsize.set("325")
-#        self.LaserYsize.set("220")
-#        
-#        self.LaserXscale.set("1.000")
-#        self.LaserYscale.set("1.000")
-#        self.LaserRscale.set("1.000")
-#
-#        self.rapid_feed.set("0.0")
-#
-#        self.gotoX.set("0.0")
-#        self.gotoY.set("0.0")
-#
-#        self.n_egv_passes.set("1")
-#
-#        self.comb_engrave.set(0)
-#        self.comb_vector.set(0)
-#        self.zoom2image.set(0)
-#
-
-#        self.trace_w_laser.set(0)
-#        self.trace_gap.set(0)
-#        self.trace_speed.set(50)
-#        self.gcode_import_spindle_power_scale.set(0.1);
         
         self.laserX    = 0.0
         self.laserY    = 0.0

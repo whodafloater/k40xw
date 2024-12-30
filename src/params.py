@@ -1,7 +1,17 @@
+# 2014 whodafloater
+# MIT license
+
+# A class for managing an applications configurable parameters
+#    file write
+#    file read
+#    bounds checking
+#
+#    parameters are defined by a dict
+#        d[name] = [type, default, min, max, sfmt, ffmt]
+
 from tkinter import *
 from tkinter.filedialog import *
 import re
-
 import os
 
 class Params:
@@ -12,7 +22,6 @@ class Params:
         self.byline = "by Scorch - 2019, whodafloater 2024"
         self.version = "0.68"
 
-        #  name,  type,  default,    min,   max, sfmt, ffmt]
         p = []
         p.append(['include_Reng', BooleanVar,   1, 0,    1, '%s', '%.0f'])
         p.append(['LaserXsize',   StringVar,  325, 0, 4000, '%s', '%.0f'])
@@ -106,15 +115,22 @@ class Params:
         d['inkscape_path']     = [StringVar,   "", 0,    1, "%s", ""]
         d['batch_path']        = [StringVar,   "", 0,    1, "%s", ""]
 
-        # derived
-        #d['funits']            = [StringVar,   1, 0,      1, ":s", ":.0f"]
 
-        ## computed
-        #d['Reng_time']         = [StringVar,   0, 0,    1, "%s", "%.0f"]
-        #d['Veng_time']         = [StringVar,   0, 0,    1, "%s", "%.0f"]
-        #d['Vcut_time']         = [StringVar,   0, 0,    1, "%s", "%.0f"]
-        #d['Gcde_time']         = [StringVar,   0, 0,    1, "%s", "%.0f"]
-        #d['statusMessage']     = [StringVar,   1, 0,    1, "%s", "%.0f"]
+    # Did not need this... idea was to create a parameter class that
+    # K40 W would subclass 
+    def superclass(self):
+        code = ''
+        code = code + f'class K40:\n'
+        code = code + f'    def __init__(self):\n'
+        d = self.d
+        for n in d:
+            name = n
+            objtype = d[n][0]
+            value =   d[n][1]
+            minval =  d[n][2]
+            maxval =  d[n][3]
+            code = code + f'        self.{name:30s} = {objtype.__name__}()\n'
+        return code
 
 
     def instantiate_params(self, context):
@@ -135,6 +151,7 @@ class Params:
             minval =  d[n][2]
             maxval =  d[n][3]
 
+            #print(f'instantiate_params: {name} {value}')
             context.__dict__[name] = objtype()
             context.__dict__[name].set(value)
 
@@ -176,6 +193,7 @@ class Params:
         header.append("(=========================================================)")
         return header
 
+
     def read(self, filename, context):
         """Read parameters from a file and update cooresponding 
            object values in a context
@@ -196,8 +214,7 @@ class Params:
             name = f.pop(0)
             value = f.pop(0)
 
-            print(f' name: {name:35s} | {value}')
-
+            #print(f' name: {name:35s} | {value}')
             context.__dict__[name].set(value)
 
 
@@ -218,6 +235,9 @@ class TestApp:
                               )
         self.statusbar.pack(anchor=SW, fill=X, side=BOTTOM)
 
+    def try_it(self):
+        u = self.units.get()
+        print(f'   units = {u}');
 
     def report_params(self):
         h = self.p.report(self)
@@ -271,11 +291,23 @@ if __name__ == "__main__":
     root = Tk()
     t = TestApp(root)
 
+    t.units.set("in")
     t.report_params()
     t.test_save_settings()
 
     t2 = TestApp(root)
+    print(f't    units = {t.units.get()}');
+    print(f't2   units = {t2.units.get()}');
+
     t2.p.read("sample_params.txt", t2)
     t2.general_file_save(".", t2.report_params(), fileforce = 'sample_params2.txt')
+
+    #c = t2.p.superclass()
+    #print(c)
+
+    t.try_it()
+
+    print(f't    units = {t.units.get()}');
+    print(f't2   units = {t2.units.get()}');
 
     #root.mainloop()

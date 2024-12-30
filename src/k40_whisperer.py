@@ -126,7 +126,7 @@ QUIET = False
 class Application(Frame):
     def __init__(self, master, opts=None, args=None):
 
-        if DEBUG: print(f'Application init, args = {args}')
+        if DEBUG: print(f'Application init, opts = {opts}, args = {args}')
 
         # initialize parameters
         p = params.Params()
@@ -135,12 +135,6 @@ class Application(Frame):
         # process command line args
         file_units = None
         self.ipaddr = '192.168.0.106'
-
-        for option, value in opts:
-            if option == '--units':
-                file_units = value
-            if option == '--ip':
-                self.ipaddr = value
 
         # initialize GUI s
         self.trace_window = toplevel_dummy()
@@ -154,9 +148,19 @@ class Application(Frame):
         self.createWidgets()
         self.micro = False
 
+        for option, value in opts:
+            if option == '--units':
+                file_units = value
+            if option == '--ip':
+                self.ipaddr = value
+            if option in ('-m','--micro'):
+                self.micro = True
+
+
         # start up with a file load
         for option, value in opts:
             if option == '--file':
+                print(f'Loading {value} ...')
                 self.fileload(value, units = file_units)
 
         # tkinter mainloop does the rest
@@ -331,8 +335,9 @@ class Application(Frame):
         self.Vcut_time.set("0")
         self.Gcde_time.set("0")
 
-        self.min_vector_speed = 1.1 #in/min
-        self.min_raster_speed = 12  #in/min
+# FIXME add to params since we need these for checking
+        #self.min_vector_speed = 1.1 #in/min
+        #self.min_raster_speed = 12  #in/min
         
         ##########################################################################
         ###                     END INITILIZING VARIABLES                      ###
@@ -1149,10 +1154,11 @@ class Application(Frame):
     # Left Column #
     #############################
     def Entry_Reng_feed_Check(self):
+        print(f'min raster speed {float(self.min_raster_speed.get())}')
         try:
             value = float(self.Reng_feed.get())
             vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = self.min_raster_speed*vfactor
+            low_limit = float(self.min_raster_speed.get())*vfactor
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1167,7 +1173,7 @@ class Application(Frame):
         try:
             value = float(self.Veng_feed.get())
             vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = self.min_vector_speed*vfactor
+            low_limit = float(self.min_vector_speed.get())*vfactor
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1182,7 +1188,7 @@ class Application(Frame):
         try:
             value = float(self.Vcut_feed.get())
             vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = self.min_vector_speed*vfactor
+            low_limit = float(self.min_vector_speed.get())*vfactor
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1575,7 +1581,7 @@ class Application(Frame):
         try:
             value = float(self.trace_speed.get())
             vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = self.min_vector_speed*vfactor
+            low_limit = float(self.min_vector_speed.get())*vfactor
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1730,7 +1736,7 @@ class Application(Frame):
         self.update_gui("Opening '%s'" % fileselect )
         TYPE=fileExtension.upper()
         if TYPE=='.DXF':
-            #print(f'    units={units}')
+            print(f'    units={units}')
             self.Open_DXF(fileselect, units=units)
         elif TYPE=='.SVG':
             self.Open_SVG(fileselect)
@@ -2311,6 +2317,9 @@ class Application(Frame):
             fd.seek(0)
             
             dxf_units = dxf_import.units
+
+            print(f'      dxf units from file: {dxf_units}')
+# FIXME make units more permissive 
             if dxf_units=="Unitless":
                 if units == None:
                    d = UnitsDialog(root)

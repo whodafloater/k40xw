@@ -116,6 +116,9 @@ class Params:
         d['batch_path']        = [StringVar,   "", 0,    1, "%s", ""]
 
 
+        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "%s", ":.0f"]  # in/min
+        d['min_raster_speed']  = [StringVar,   12,  12,   100, "%s", ":.0f"]  # in/min
+
     # Did not need this... idea was to create a parameter class that
     # K40 W would subclass 
     def superclass(self):

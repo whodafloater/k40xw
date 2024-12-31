@@ -158,6 +158,7 @@ class Application(Frame):
         self.createWidgets()
         self.micro = False
 
+
         # start up with a file load
         for option, value in opts:
             if option == '--file':
@@ -431,6 +432,15 @@ class Application(Frame):
         self.Label_Reng_pct = Label(self.master,text="%", anchor='center')
         self.Label_Veng_pct = Label(self.master,text="%", anchor='center')
         self.Label_Vcut_pct = Label(self.master,text="%", anchor='center')
+
+        # upload style
+        self.style_label = Label(self.master, text="X-Tool D1", justify='left' )
+        self.style_1 = Radiobutton(self.master, text="Upload gcode file", justify='left', value="uploadfile")
+        self.style_2 = Radiobutton(self.master, text="Send line by line", justify='left', value="linebyline")
+        self.upload_style = StringVar()
+        self.upload_style.set('linebyline')
+        self.style_1.configure(variable=self.upload_style)
+        self.style_2.configure(variable=self.upload_style)
 
         # Buttons
         self.Reng_Button  = Button(self.master,text="Raster Engrave", command=self.Raster_Eng)
@@ -1241,12 +1251,13 @@ class Application(Frame):
     #############################
     def Entry_Rstep_Check(self):
         try:
-            value = self.get_raster_step_1000in()
+            value = self.value('rast_step_mil', 'mil')
             if  value <= 0 or value > 63:
                 self.statusMessage.set(" Step should be between 0.001 and 0.063 in")
                 return 2 # Value is invalid number
         except:
             return 3     # Value not a number
+
         return 0         # Value is a valid number
     def Entry_Rstep_Callback(self, varName, index, mode):
         self.RengData.reset_path()
@@ -2010,9 +2021,10 @@ class Application(Frame):
                 
                 my_hull = hull2D()
                 bignumber = 9999999;
-                Raster_step = int(self.get_raster_step_1000in())
+                Raster_step = self.value('rast_step_mil', 'mil')
                 timestamp=0
                 im_height_mils = int(him/self.input_dpi*1000.0)
+                print(f'make_raster_coords:  height: {im_height_mils}  step: {Raster_step}')
                 for i_step in range(0,im_height_mils,Raster_step):
                     i=floor(i_step*self.input_dpi/1000.0)
                     #print(i_step,i)
@@ -2108,11 +2120,6 @@ class Application(Frame):
                 im_rotated_np[i,wim-j] = image_in_np[j,i]
         return im_rotated
     
-    def get_raster_step_1000in(self):
-        val_in = float(self.rast_step.get())
-        value = int(round(val_in*1000.0,1)) 
-        return value
-
 
     def generate_bezier(self,M1,M2,w,n=100):
         if (M1==M2):
@@ -2775,7 +2782,7 @@ class Application(Frame):
         self.stop[0]=False
         self.move_head_window_temporary([0,0])
         self.set_gui("disabled")
-        self.statusbar.configure( bg = 'green' )
+        self.statusbar.configure( bg = 'light green' )
         self.statusMessage.set(msg)
         self.master.update()
 
@@ -3205,6 +3212,14 @@ class Application(Frame):
             return_value.set("cancel")
             w.destroy()
 
+        def Save_Click():
+            self.general_file_save(self.DESIGN_FILE,
+                                   data,
+                                   defaultextension = '.gcode',
+                                   #filetypes = [("Text File","*.gcode", "*.nc", "*.gc")]
+                                   filetypes = [("all files", "*")]
+                                  )
+
         #Text Box
         tf = Frame(w)
         sb = Scrollbar(tf, orient=VERTICAL)
@@ -3216,6 +3231,7 @@ class Application(Frame):
         #End Text Box
 
         bf = Frame(w)
+        Button(bf, text=" Save to File ", command = Save_Click).pack(side = RIGHT)
         Button(bf, text=" Continue Send ", command = Close_Click).pack(side = RIGHT)
         Button(bf, text=" Cancel ", command = Cancel_Click).pack(side = RIGHT)
 
@@ -3463,7 +3479,7 @@ class Application(Frame):
                 
             if (operation_type.find("Raster_Eng") > -1) and  (self.RengData.ecoords!=[]):
                 Feed_Rate = self.value('Reng_feed', 'mm/sec')
-                Raster_step = self.get_raster_step_1000in()
+                Raster_step = self.value('rast_step_mil', 'mil')
                 if not self.engraveUP.get():
                     Raster_step = -Raster_step
                     
@@ -3589,7 +3605,14 @@ class Application(Frame):
             self.k40.timeout       = int(float( self.t_timeout.get()  )) 
             self.k40.n_timeouts    = int(float( self.n_timeouts.get() ))
             time_start = time()
-            self.k40.send_data(data,self.update_gui,self.stop,num_passes,pre_process_CRC, wait_for_laser=self.wait.get())
+
+            if self.upload_style.get() == 'linebyline':
+               self.k40.send_data(data,self.update_gui,self.stop,num_passes,pre_process_CRC, wait_for_laser=self.wait.get())
+            elif self.upload_style.get() == 'uploadfile':
+               self.k40.upload_cut_file(data,self.update_gui,self.stop,num_passes,pre_process_CRC, wait_for_laser=self.wait.get())
+            else:
+               raise Exception(f'Upload style unknown: {self.upload_style.get()}')
+
             self.run_time = time()-time_start
             if DEBUG:
                 print(("Elapsed Time: %.6f" %(time()-time_start)))
@@ -3795,9 +3818,9 @@ class Application(Frame):
             app.master.title(title_text+"   "+ self.DESIGN_FILE)
         except:
             pass
-        dummy_event = Event()
-        dummy_event.widget=self.master
-        self.Master_Configure(dummy_event,1)
+        #dummy_event = Event()
+        #dummy_event.widget=self.master
+        #self.Master_Configure(dummy_event,1)
         self.Plot_Data()
         xmin,xmax,ymin,ymax = self.Get_Design_Bounds()
         W = xmax-xmin
@@ -3837,6 +3860,7 @@ class Application(Frame):
                 self.menu_Reload_Design()
 
     def menu_Mode_Change(self):
+        pass
         dummy_event = Event()
         dummy_event.widget=self.master
         self.Master_Configure(dummy_event,1)
@@ -3916,8 +3940,13 @@ class Application(Frame):
         y = int(self.master.winfo_y())
         w = int(self.master.winfo_width())
         h = int(self.master.winfo_height())
+        print(f'Master_Configure: {x,y,w,h}')
+        if (x, y, w, h) == (0, 0, 1, 1):
+            return
+
         if (self.x, self.y) == (-1,-1):
             self.x, self.y = x,y
+            print("Master_Configure: first time")
         if abs(self.w-w)>10 or abs(self.h-h)>10 or update==1:
             ###################################################
             #  Form changed Size (resized) adjust as required #
@@ -4098,6 +4127,15 @@ class Application(Frame):
                                 self.Reng_Veng_Button.place(x=12, y=Y_Reng, width=100, height=23*2+7)
                         elif self.comb_vector.get():
                             self.Veng_Vcut_Button.place(x=12, y=Y_Veng, width=100, height=23*2+7)
+
+                    Yloc=Yloc-7
+                    self.separator3.place(x=x_label_L, y=Yloc, width=w_label+75+40, height=2)
+                    Yloc=Yloc-22
+                    self.style_2.place(x=x_label_L, y=Yloc, width=200, height=23)
+                    Yloc=Yloc-20
+                    self.style_1.place(x=x_label_L, y=Yloc, width=200, height=23)
+                    Yloc=Yloc-20
+                    self.style_label.place(x=x_label_L, y=Yloc, width=200, height=23)
                    
                     
                 else:
@@ -4121,7 +4159,7 @@ class Application(Frame):
                     self.Grun_Button.place  (x=12, y=Yloc, width=100*2, height=23)
                     
                 if h>=560:
-                    Yloc=Yloc-15
+                    Yloc=Yloc-7
                     self.separator2.place(x=x_label_L, y=Yloc,width=w_label+75+40, height=2)
                 else:
                     self.separator2.place_forget()
@@ -5028,12 +5066,12 @@ class Application(Frame):
         D_Yloc=D_Yloc+D_dY
         self.Label_Rstep   = Label(raster_settings,text="Scanline Step", anchor=CENTER )
         self.Label_Rstep.place(x=xd_label_L, y=D_Yloc, width=w_label, height=21)
-        self.Label_Rstep_u = Label(raster_settings,text="in", anchor=W)
+        self.Label_Rstep_u = Label(raster_settings,text="thou", anchor=W)
         self.Label_Rstep_u.place(x=xd_units_L, y=D_Yloc, width=w_units, height=21)
         self.Entry_Rstep   = Entry(raster_settings,width="15")
         self.Entry_Rstep.place(x=xd_entry_L, y=D_Yloc, width=w_entry, height=23)
-        self.Entry_Rstep.configure(textvariable=self.rast_step)
-        self.rast_step.trace_variable("w", self.Entry_Rstep_Callback)
+        self.Entry_Rstep.configure(textvariable=self.rast_step_mil)
+        self.rast_step_mil.trace_variable("w", self.Entry_Rstep_Callback)
 
         D_Yloc=D_Yloc+D_dY
         self.Label_EngraveUP = Label(raster_settings,text="Engrave Bottom Up")
@@ -5392,7 +5430,43 @@ class Application(Frame):
         self.EGV_Send = Button(egv_send,text="Send EGV Data",command=Close_and_Send_Click)
         self.EGV_Send.place(x=Xbut, y=Ybut, width=130, height=30, anchor="w")
         ################################################################################
-        
+
+    def general_file_save(self, place, data,
+                          fileforce = None,
+                          defaultextension = '.txt',
+                          filetypes = [("Text File","*.txt")]):
+        if fileforce == None:
+           init_dir = os.path.dirname(place)
+           fileName, fileExtension = os.path.splitext(place)
+           init_file = os.path.basename(fileName)
+
+           filename = asksaveasfilename(defaultextension = defaultextension,
+                                        filetypes = filetypes,
+                                        initialdir = init_dir,
+                                        initialfile = init_file)
+        else:
+            filename = fileforce
+
+        if filename == '': return
+        if filename == (): return
+
+        try:
+            fout = open(filename,'w')
+        except:
+            self.statusMessage.set("Unable to open file for writing: %s" %(filename))
+            self.statusbar.configure( bg = 'red' )
+            return
+
+        for line in data:
+            try:
+                fout.write(line+'\n')
+            except:
+                fout.write('(skipping line)\n')
+                debug_message(traceback.format_exc())
+        fout.close
+        self.statusMessage.set("File Saved: %s" %(filename))
+        self.statusbar.configure( bg = 'white' )
+
         
 ################################################################################
 #             Function for outputting messages to different locations          #
@@ -5866,7 +5940,7 @@ if __name__ == "__main__":
        app.master.minsize(480,320)
        app.master.geometry("480x320")
     else:
-       app.master.minsize(800,560)
-       app.master.geometry("800x560")
+       app.master.minsize(800,650)
+       app.master.geometry("800x650")
     
     root.mainloop()

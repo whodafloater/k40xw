@@ -2021,7 +2021,7 @@ class Application(Frame):
                 
                 my_hull = hull2D()
                 bignumber = 9999999;
-                Raster_step = self.value('rast_step_mil', 'mil')
+                Raster_step = int(self.value('rast_step_mil', 'mil'))
                 timestamp=0
                 im_height_mils = int(him/self.input_dpi*1000.0)
                 print(f'make_raster_coords:  height: {im_height_mils}  step: {Raster_step}')
@@ -3479,7 +3479,7 @@ class Application(Frame):
                 
             if (operation_type.find("Raster_Eng") > -1) and  (self.RengData.ecoords!=[]):
                 Feed_Rate = self.value('Reng_feed', 'mm/sec')
-                Raster_step = self.value('rast_step_mil', 'mil')
+                Raster_step = int(self.value('rast_step_mil', 'mil'))
                 if not self.engraveUP.get():
                     Raster_step = -Raster_step
                     

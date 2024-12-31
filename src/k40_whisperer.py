@@ -276,7 +276,7 @@ class Application(Frame):
         self.master.bind('<Escape>'    , self.Stop)
         self.master.bind('<Control-t>' , self.TRACE_Settings_Window)
 
-        self.funits     = StringVar()
+        self.funits    = StringVar()
         self.Reng_time = StringVar()
         self.Veng_time = StringVar()
         self.Vcut_time = StringVar()
@@ -342,11 +342,9 @@ class Application(Frame):
         # Derived variables
         if self.units.get() == 'in':
             self.funits.set('in/min')
-            self.units_scale = 1.0
         else:
             self.units.set('mm')
             self.funits.set('mm/s')
-            self.units_scale = 25.4
         
         self.statusMessage = StringVar()
         self.statusMessage.set("Welcome to K40 Whisperer")
@@ -1575,35 +1573,10 @@ class Application(Frame):
     def Entry_units_var_Callback(self):
         if (self.units.get() == 'in') and (self.funits.get()=='mm/s'):
             self.funits.set('in/min')
-            self.Scale_Linear_Inputs('in')
         elif (self.units.get() == 'mm') and (self.funits.get()=='in/min'):
             self.funits.set('mm/s')
-            self.Scale_Linear_Inputs('mm')
-            
-    def Scale_Linear_Inputs(self, new_units=None):
-        if new_units=='in':
-            self.units_scale = 1.0
-            factor  = 1/25.4
-            vfactor = 60.0/25.4
-        elif new_units=='mm':
-            factor  = 25.4
-            vfactor = 25.4/60.0
-            self.units_scale = 25.4
-        else:
-            return
-
         self.p.sync_units(self)
 
-#        self.LaserXsize.set ( self.Scale_Text_Value('%.2f',self.LaserXsize.get()  ,factor ) )
-#        self.LaserYsize.set ( self.Scale_Text_Value('%.2f',self.LaserYsize.get()  ,factor ) )
-#        self.jog_step.set   ( self.Scale_Text_Value('%.3f',self.jog_step.get()    ,factor ) )
-#        self.gotoX.set      ( self.Scale_Text_Value('%.3f',self.gotoX.get()       ,factor ) )
-#        self.gotoY.set      ( self.Scale_Text_Value('%.3f',self.gotoY.get()       ,factor ) )
-#        self.Reng_feed.set  ( self.Scale_Text_Value('%.1f',self.Reng_feed.get()   ,vfactor) )
-#        self.Veng_feed.set  ( self.Scale_Text_Value('%.1f',self.Veng_feed.get()   ,vfactor) )
-#        self.Vcut_feed.set  ( self.Scale_Text_Value('%.1f',self.Vcut_feed.get()   ,vfactor) )
-#        self.trace_speed.set( self.Scale_Text_Value('%.1f',self.trace_speed.get() ,vfactor) )
-#        self.rapid_feed.set ( self.Scale_Text_Value('%.1f',self.rapid_feed.get()  ,vfactor) )
 
     def Scale_Text_Value(self,format_txt,Text_Value,factor):
         try:
@@ -2381,11 +2354,9 @@ class Application(Frame):
 
         if self.units.get() == 'in':
             self.funits.set('in/min')
-            self.units_scale = 1.0
         else:
             self.units.set('mm')
             self.funits.set('mm/s')
-            self.units_scale = 25.4
 
         temp_name, fileExtension = os.path.splitext(filename)
         file_base=os.path.basename(temp_name)
@@ -2882,7 +2853,7 @@ class Application(Frame):
         trace_coords=[]
         if all_coords != []:
             trace_coords = my_hull.convexHullecoords(all_coords)
-            gap = float(self.trace_gap.get())/self.units_scale
+            gap = self.value('trace_gap', 'in')
             trace_coords = self.offset_eccords(trace_coords,gap)
 
         trace_coords,startx,starty = self.scale_vector_coords(trace_coords,startx,starty)
@@ -3835,10 +3806,11 @@ class Application(Frame):
             H_display = H
             U_display = self.units.get()
         else:
-            X_display = (self.laserX + self.pos_offset[0]/1000.0)*self.units_scale
-            Y_display = (self.laserY + self.pos_offset[1]/1000.0)*self.units_scale
-            W_display = W*self.units_scale
-            H_display = H*self.units_scale
+            units_scale = 25.4
+            X_display = (self.laserX + self.pos_offset[0]/1000.0)*units_scale
+            Y_display = (self.laserY + self.pos_offset[1]/1000.0)*units_scale
+            W_display = W*units_scale
+            H_display = H*units_scale
             U_display = self.units.get()
         if self.HomeUR.get():
             X_display = -X_display
@@ -4419,11 +4391,9 @@ class Application(Frame):
         wc = float(cszw/2)
         hc = float(cszh/2)        
         
-        #maxx = float(self.LaserXsize.get()) / self.units_scale
         maxx =  self.value('LaserXsize', 'in')
         minx = 0.0
         maxy = 0.0
-        #miny = -float(self.LaserYsize.get()) / self.units_scale
         miny = -self.value('LaserYsize', 'in')
         midx=(maxx+minx)/2
         midy=(maxy+miny)/2
@@ -4654,7 +4624,7 @@ class Application(Frame):
         
     def Plot_Raster(self, XX, YY, Xleft, Ytop, PlotScale, im):
         if (self.HomeUR.get()):
-            maxx = float(self.LaserXsize.get()) / self.units_scale
+            maxx = self.value('LaserXsize', 'in')
             xmin,xmax,ymin,ymax = self.Get_Design_Bounds()
             xplt = Xleft + ( maxx-XX-(xmax-xmin) )/PlotScale
         else:
@@ -4692,7 +4662,7 @@ class Application(Frame):
     def Plot_circle(self, XX, YY, Xleft, Ytop, PlotScale, col, radius=0, cross_hair=False):
         circle_tags = ('LaserTag','LaserDot')
         if (self.HomeUR.get()):
-            maxx = float(self.LaserXsize.get()) / self.units_scale
+            maxx = self.value('LaserXsize', 'in')
             xplt = Xleft + maxx/PlotScale - XX/PlotScale
         else:
             xplt = Xleft + XX/PlotScale

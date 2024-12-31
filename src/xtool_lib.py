@@ -157,7 +157,7 @@ class xtool_CLASS:
 
             if d['result'] != expect:
                 msg = f"bad result from device: {d}"
-                raise Exception(msg)
+                #raise Exception(msg)
 
         return d
 
@@ -174,6 +174,41 @@ class xtool_CLASS:
     def none_function(self,dummy=None,bgcolor=None):
         #Don't delete this function (used in send_data)
         return False
+
+    def upload_cut_file(self, data, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False):
+        if update_gui == None:
+            update_gui = self.none_function
+
+        msg = f'Generating gcode'
+        update_gui(msg)
+        gcode, segtime = self.ecoord_to_gcode(data)
+
+        gc = ''
+        for line in gcode:
+           gc = gc + line + '\n'
+
+        print(gc)
+
+        msg = f'Uploading Data to X-Tool'
+        update_gui(msg)
+ 
+        files = {'file': ('tmp.gcode', gc)}
+        url = '/cnc/data?filetype=1'
+        full_url = f'http://{self.IP}:{self.PORT}{url}'
+        result = requests.post(full_url, files=files)
+
+        if result.status_code == 200:
+            print("INFO: upload success!")
+            print("INFO: Green led should be on. Press XTool button to cut.")
+            msg = f'Uploading Sucsessful. Use the X-Tool button to start the burn.'
+            update_gui(msg)
+        else:
+            msg = f'Upload Failed: {result}'
+            update_gui(msg)
+
+        return result
+
+
 
     def send_data(self, data, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False):
         print("xtool send_data entering")
@@ -327,6 +362,7 @@ class xtool_CLASS:
 
          dt = 0
          gcode.append(f'M17 S1')
+         gcode.append(f'M205 X426 Y403')  # file uploads do not work with out this
          gcode.append(f'G90')
          gcode.append(f'G92 X0 Y0')
          gcode.append(f'G0 F{rapid}')

@@ -9,12 +9,36 @@
 #    parameters are defined by a dict
 #        d[name] = [type, default, min, max, unit, sfmt, ffmt]
 #
-# scalar units:  mm, in, px, pct, u, rat, dpi
-# velocity units:  mm/sec, in/min
+# Application code can reference these as normal. For example "units",
+#    self.units.get()
+#    self.units.set("mm")
+#
+# These are tkinter.Variable classes. Bind a callack with:
+#    self.units.trace_variable(mode, callback_fn)
+#
+# https://github.com/python/cpython/issues/66313
+# https://github.com/python/cpython/blob/3.13/Lib/tkinter/__init__.py
+#    use trace_add(mode, callback)
+#       Mode is one of "read", "write", "unset", or a list or tuple of
+#       such strings.
+# 
+#
+# Scalar units:  mm, in, px, pct, u, rat, dpi
+# Velocity units:  mm/sec, in/min
 # True strings have ffmt = ""
 # Numeric fields have a float format string, ffmt != ""
 # Numeric fields are strings so they can hold bad user input
-
+#
+# The original K40w expects unit consistency:
+#    units="mm" and  mm and mm/sec   or   units="in" and  in and in/mm
+# Since these tkinter.Variable objects values are bound to
+# the GUI widgets they must all be converted when the GUI "units"
+# value is changed.
+#
+#
+# ecoord data is always inch, mm/sec, pct power
+# 
+#
 from tkinter import *
 from tkinter.filedialog import *
 import re
@@ -28,95 +52,119 @@ class Params:
         self.byline = "by Scorch - 2019, whodafloater 2024"
         self.version = "0.68"
 
+        self.numcheck = 1.23456789
+
+        # mm precision   1 -> 10 mm     0.400 in
+        #                0 ->  1 mm     0.040 in
+        #               -1 ->  0.1 mm   0.004 in
+        #               -2 ->  0.01 mm  0.0004 in
+        f = dict()
+        self.f = f
+        f['mm'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -9:'0.9f', 'd':'.0f'}
+        f['in'] = {1:'.1f', 0:'.2f', -1:'.3f', -2:'.4f', -9:'.11f', 'd':'.0f'}
+        f['mm/sec'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', 'd':'.0f'}
+        f['in/min'] = {1:'.1f', 0:'.2f', -1:'.3f', -2:'.4f', 'd':'.0f'}
+        f['rat'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f', -4:'.4f'}
+        f['pct'] = {1:'.0f', 0:'.0f', -1:'.1f', 'd':'.0f'}
+        f['sec'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f'}
+        f['u'] =   {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f', 'd':'.0f'}
+        f['dpi'] = {0:'.0f', 'd':'.0f'}
+        f['px'] =  {0:'.0f', 'd':'.0f'}
+        f['""'] =  {'""':'s', '':'s'}
+
         d = dict()
         self.d = d
 
-        d['include_Reng']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['include_Rpth']      = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['include_Veng']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['include_Vcut']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['include_Gcde']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['include_Time']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['numcheck']          = [StringVar,    self.numcheck, 0, 1e9, "mm", ":s", -9]
 
-        d['halftone']          = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['HomeUR']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['inputCSYS']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['advanced']          = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['include_Reng']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['include_Rpth']      = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['include_Veng']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['include_Vcut']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['include_Gcde']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['include_Time']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
 
-        d['mirror']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['rotate']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['negate']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['engraveUP']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['init_home']         = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['post_home']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['post_beep']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['post_disp']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['post_exec']         = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['halftone']          = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['HomeUR']            = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['inputCSYS']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['advanced']          = [BooleanVar,   0, 0,    1, "", ":s", ""]
 
-        d['pre_pr_crc']        = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
-        d['inside_first']      = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['mirror']            = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['rotate']            = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['negate']            = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['engraveUP']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['init_home']         = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['post_home']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['post_beep']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['post_disp']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['post_exec']         = [BooleanVar,   0, 0,    1, "", ":s", ""]
 
-        d['comb_engrave']      = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['comb_vector']       = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['zoom2image']        = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['rotary']            = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['reduced_mem']       = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
-        d['input_dpi']         = [StringVar,    1000, 100, 1000, "dpi", ":s", "%.0f"]
-        d['wait']              = [BooleanVar,   1, 0,    1, "", ":s", "%.0f"]
+        d['pre_pr_crc']        = [BooleanVar,   1, 0,    1, "", ":s", ""]
+        d['inside_first']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
 
-        d['trace_w_laser']     = [BooleanVar,   0, 0,    1, "", ":s", "%.0f"]
+        d['comb_engrave']      = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['comb_vector']       = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['zoom2image']        = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['rotary']            = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['reduced_mem']       = [BooleanVar,   0, 0,    1, "", ":s", ""]
+        d['input_dpi']         = [StringVar,    1000, 100, 1000, "dpi", ":s", "d"]
+        d['wait']              = [BooleanVar,   1, 0,    1, "", ":s", ""]
 
-        d['trace_gap']         = [StringVar,   0, 0,     1, "mm",     ":s", "%.0f"]
-        d['trace_speed']       = [StringVar,   50, 0,   100, "mm/sec", ":s", "%.0f"]
+        d['trace_w_laser']     = [BooleanVar,   0, 0,    1, "", ":s", ""]
+
+        d['trace_gap']         = [StringVar,   0, 0,     1, "mm",      ":s", 0]
+        d['trace_speed']       = [StringVar,   50, 0,   100, "mm/sec", ":s", 0]
 
 
-        d['Reng_feed']         = [StringVar,   100, 0,  600, "mm/sec", ":s", ":.0f"]
-        d['Veng_feed']         = [StringVar,   20,  0,  600, "mm/sec", ":s", ":.0f"]
-        d['Vcut_feed']         = [StringVar,   10,  0,  600, "mm/sec", ":s", ":.0f"]
+        d['Reng_feed']         = [StringVar,   100, 0,  600, "mm/sec", ":s", 0]
+        d['Veng_feed']         = [StringVar,   20,  0,  600, "mm/sec", ":s", 0]
+        d['Vcut_feed']         = [StringVar,   10,  0,  600, "mm/sec", ":s", 0]
 
-        d['Reng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
-        d['Veng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
-        d['Vcut_pow']          = [StringVar,   5, 0,    1, "pct", ":s", ":.0f"]
-        d['Reng_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
-        d['Veng_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
-        d['Vcut_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
-        d['Gcde_passes']       = [StringVar,   1, 0,    1, "u", ":s", ":.0f"]
+        d['Reng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", "d"]
+        d['Veng_pow']          = [StringVar,   5, 0,    1, "pct", ":s", "d"]
+        d['Vcut_pow']          = [StringVar,   5, 0,    1, "pct", ":s", "d"]
+        d['Reng_passes']       = [StringVar,   1, 0,    1, "u", ":s",   "d"]
+        d['Veng_passes']       = [StringVar,   1, 0,    1, "u", ":s",   "d"]
+        d['Vcut_passes']       = [StringVar,   1, 0,    1, "u", ":s",   "d"]
+        d['Gcde_passes']       = [StringVar,   1, 0,    1, "u", ":s",   "d"]
 
         d['board_name']        = [StringVar,   "LASER-M2", 0, 1, "", ":s", ""]
         d['units']             = [StringVar,   "mm", 0,    1,    "", ":s", ""]
 
-        d['jog_step']          = [StringVar,   10, 0.1,   100, "mm", ":s", ":.0f"]
-        d['rast_step']         = [StringVar,   0.002, 0,  1,   "in", ":s", ":.0f"]
-        d['ht_size']           = [StringVar,   500, 0,    1,   "px", ":s", ":.0f"]
+        d['jog_step']          = [StringVar,   10, 0.1,   100, "mm", ":s", -1]
+        d['rast_step']         = [StringVar,   0.002, 0,  1,   "in", ":s", -2]
+        d['ht_size']           = [StringVar,   500, 0,    1,   "px", ":s", "d"]
 
-        d['LaserXsize']        = [StringVar,   425, 0,    1000, "mm", ":s", ":.0f"]
-        d['LaserYsize']        = [StringVar,   395, 0,    1000, "mm", ":s", ":.0f"]
-        d['LaserXscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
-        d['LaserYscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
-        d['LaserRscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", ":.3f"]
+        d['LaserXsize']        = [StringVar,   425, 0,    1000, "mm", ":s", 0]
+        d['LaserYsize']        = [StringVar,   395, 0,    1000, "mm", ":s", 0]
+        d['LaserXscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", -3]
+        d['LaserYscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", -3]
+        d['LaserRscale']       = [StringVar,   1.000, 0,  2,  "rat", ":s", -3]
 
-        d['rapid_feed']        = [StringVar,   0.0, 1,   600, "mm/sec", ":s", ":.0f"]
-        d['gotoX']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", ":.3f"]
-        d['gotoY']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", ":.3f"]
+        d['linear_rapid_feed'] = [StringVar,   3000, 0, 3000, "in/min", ":s", 0]
+        d['rapid_feed']        = [StringVar,   0.0, 0,   600, "mm/sec", ":s", 0]
+        d['min_rapid_feed']    = [StringVar,   1.0, 1,     1, "in/min", ":s", 0]
+        d['gotoX']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", 0]
+        d['gotoY']             = [StringVar,   0.0, 0,  1000,     "mm", ":s", 0]
 
-        d['bezier_M1']         = [StringVar,   2.5, 0,    1, "", ":s", ":.3f"]
-        d['bezier_M2']         = [StringVar,   0.50, 0,   1, "", ":s", ":.3f"]
-        d['bezier_weight']     = [StringVar,   3.5, 0,    1, "", ":s", ":.3f"]
+        d['bezier_M1']         = [StringVar,   2.5, 0,    1, "u", ":s", -3]
+        d['bezier_M2']         = [StringVar,   0.50, 0,   1, "u", ":s", -3]
+        d['bezier_weight']     = [StringVar,   3.5, 0,    1, "u", ":s", -3]
 
-        d['n_egv_passes']      = [StringVar,   1, 0,      1, "u", ":s", ":.0f"]
+        d['n_egv_passes']      = [StringVar,   1, 0,      1, "u", ":s", "d"]
 
-        d['t_timeout']         = [StringVar,   200, 0,    1, "sec", ":s", ":.0f"]
-        d['n_timeouts']        = [StringVar,   30, 0,     1, "u", ":s", ":.0f"]
-        d['ink_timeout']       = [StringVar,   3, 0,      1, "sec", ":s", ":.0f"]
+        d['t_timeout']         = [StringVar,   200, 0,    1, "sec", ":s", 0]
+        d['n_timeouts']        = [StringVar,   30, 0,     1, "u", ":s", "d"]
+        d['ink_timeout']       = [StringVar,   3, 0,      1, "sec", ":s", 0]
 
-        d['gcode_import_spindle_power_scale'] = [StringVar, 1, 0, 1, "rat", ":s", ":.3f"]
+        d['gcode_import_spindle_power_scale'] = [StringVar, 1, 0, 1, "rat", ":s", -2]
 
         d['designfile']        = [StringVar,   "../test/Drawing1.DXF", 0, 1, "", ":s", ""]
         d['inkscape_path']     = [StringVar,   "", 0,    1, "", "%s", ""]
         d['batch_path']        = [StringVar,   "", 0,    1, "", "%s", ""]
 
-        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "in/min", "%s", ":.0f"]  # in/min
-        d['min_raster_speed']  = [StringVar,   12,  12,   100, "in/min", "%s", ":.0f"]  # in/min
+        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "in/min", "%s", 0]  # in/min
+        d['min_raster_speed']  = [StringVar,   12,  12,   100, "in/min", "%s", 0]  # in/min
 
     # Did not need this... idea was to create a parameter class that
     # K40 W would subclass 
@@ -176,24 +224,26 @@ class Params:
             objtype = d[name][0]
             value = context.__dict__[name].get()
             unit = d[name][4]
-            if unit == '': unit = '""'
 
-            ffmt = d[name][6]
+            if unit == '':
+               unit = '""'
+
+            ffmt = '{:' + self.f[unit][d[name][6]] + '}'
+            #print(f'{name} {unit} {ffmt}')
 
             if objtype == BooleanVar:
                 value = int(value)
 
-            elif ffmt == '%.0f':
-                value = int(value)
+            elif unit == '""':
+                pass
 
             elif ffmt != '':
-                ffmt = '{' + ffmt + '}'
                 value = ffmt.format(float(value))
 
             if value == '':
                 value = '""'
  
-            s = f'({self.ident} {name:13s} {str(value)} {unit})'
+            s = f'({self.ident} {name:13s} {str(value)} {unit} )'
             header.append(s)
 
         header.append("(=========================================================)")
@@ -224,8 +274,16 @@ class Params:
             #print(f' name: {name:35s} | {value}')
             context.__dict__[name].set(value)
 
+        # K40 does more init based on the new value
+        #   check for existance of designfile
+        # default units to mm 
+        #   set funits  (feed units, they just track mm, in)
+        #   set units_scale
+        #   trigger master_Configure()
+        
+
     def convert(self, value, old, new):
-        if old == new: return 1
+        if old == new: return value
 
         s = 1
         dpi = self.d['input_dpi'][1]   # just the default
@@ -250,13 +308,106 @@ class Params:
         if 'px' in new:
             s = dpi/25.4
 
+        print(f'convert: {value} {old} to {new} --> {value*s}')
+
         return value * s
+
+    def value(self, context, name, unit):
+        '''Return a parameter value converted to a desired unit
+           Note units are in this class instance
+           values are in the application context
+        '''
+        data_val  = float(context.__dict__[name].get())
+        data_unit = self.d[name][4]
+        return self.convert(data_val, data_unit, unit)
 
     def speed_check(self, name, value):
         # min_vector_speed
         # min_raster_speed
         pass
 
+
+    def fmtstr(self, name):
+        d = self.d
+        unit = d[name][4]
+        if unit == '':
+            unit = '""'
+        #print(f'    format string for {name}  {self.f[unit][d[name][6]]}')
+        return '{:' + self.f[unit][d[name][6]] + '}'
+
+    def mm_to_in(self, context, name):
+        u = self.d[name][4]
+        if u == 'in': return
+        if u != 'mm': raise Exception(f'expected "mm" units for parameter {name}')
+        newvalue = float(context.__dict__[name].get()) / 25.4
+        self.d[name][4] = 'in'
+        newvalue = self.fmtstr(name).format(newvalue)
+        context.__dict__[name].set(newvalue)
+        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+
+    def in_to_mm(self, context, name):
+        u = self.d[name][4]
+        if u == 'mm': return
+        if u != 'in': raise Exception(f'expected "in" units for parameter {name}')
+        newvalue = float(context.__dict__[name].get()) * 25.4
+        self.d[name][4] = 'mm'
+        newvalue = self.fmtstr(name).format(newvalue)
+        context.__dict__[name].set(newvalue)
+        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+
+    def mmps_to_inpm(self, context, name):
+        u = self.d[name][4]
+        if u == 'in/min': return
+        if u != 'mm/sec': raise Exception(f'expected "mm/sec" units for parameter {name}')
+        newvalue = float(context.__dict__[name].get()) * 60 / 25.4
+        self.d[name][4] = 'in/min'
+        newvalue = self.fmtstr(name).format(newvalue)
+        context.__dict__[name].set(newvalue)
+        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+
+    def inpm_to_mmps(self, context, name):
+        u = self.d[name][4]
+        if u == 'mm/sec': return
+        if u != 'in/min': raise Exception(f'expected "in/min" units for parameter {name}')
+        newvalue = float(context.__dict__[name].get()) * 25.4 / 60
+        self.d[name][4] = 'mm/sec'
+        newvalue = self.fmtstr(name).format(newvalue)
+        context.__dict__[name].set(newvalue)
+        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+
+    def sync_units(self, context):
+        units = context.__dict__['units'].get()
+        d = self.d
+
+        if units == 'mm':
+            for name in d:
+                u = self.d[name][4]
+                if units in u:
+                    continue
+                if u == 'in':
+                    self.in_to_mm(context, name)
+                if u == 'in/min':
+                    self.inpm_to_mmps(context, name)
+
+        elif units == 'in':
+            for name in d:
+                u = self.d[name][4]
+                if units in u:
+                    continue
+                if u == 'mm':
+                    self.mm_to_in(context, name)
+                if u == 'mm/sec':
+                    self.mmps_to_inpm(context, name)
+
+        else:
+            raise Exception("no units?")
+
+
+def assert_val(x, y):
+    if __debug__:
+       print(f'    assertion: ({x}) == ({y}) ?')
+       assert(abs(x - y) < 1e-6)
+       #print(f'assertion passed: {x} {y}')
 
 
 class TestApp:
@@ -327,6 +478,11 @@ class TestApp:
         self.statusbar.configure( bg = 'white' )
 
 if __name__ == "__main__":
+
+    fmt = '{:.0f}'
+    value = 143/3
+    value = fmt.format(value)
+    print(f'value = {value}')
 
     root = Tk()
     t = TestApp(root)

@@ -129,12 +129,20 @@ class Application(Frame):
         if DEBUG: print(f'Application init, opts = {opts}, args = {args}')
 
         # initialize parameters
-        p = params.Params()
-        p.instantiate_params(self)
+        self.p = params.Params()
+        self.p.instantiate_params(self)
 
         # process command line args
         file_units = None
         self.ipaddr = '192.168.0.106'
+
+        for option, value in opts:
+            if option == '--units':
+                file_units = value
+            if option == '--ip':
+                self.ipaddr = value
+            if option in ('-m','--micro'):
+                self.micro = True
 
         # initialize GUI s
         self.trace_window = toplevel_dummy()
@@ -148,24 +156,33 @@ class Application(Frame):
         self.createWidgets()
         self.micro = False
 
-        for option, value in opts:
-            if option == '--units':
-                file_units = value
-            if option == '--ip':
-                self.ipaddr = value
-            if option in ('-m','--micro'):
-                self.micro = True
-
-
         # start up with a file load
         for option, value in opts:
             if option == '--file':
                 print(f'Loading {value} ...')
                 self.fileload(value, units = file_units)
 
+        # make sure param system works
+        params.assert_val(1.000, 1.000+1e-9)
+        params.assert_val(float(self.numcheck.get()), self.p.numcheck)
+        params.assert_val(self.value('numcheck', 'in'), self.p.numcheck/25.4)
         # tkinter mainloop does the rest
         return
 
+    def value(self, name, unit):
+        '''Helper to retrieve values in a specific base
+           Note that the Param class instance needs to
+           know which context to retrieve from
+        '''
+        return self.p.value(self, name, unit)
+
+    def velocity_units(self):
+        if self.units.get() == 'mm':
+           return 'mm/sec'
+        elif self.units.get() == 'in':
+            return 'in/min'
+        else:
+            raise Exception("units ?")
 
     def resetPath(self):
         self.RengData  = ECoord()
@@ -271,6 +288,11 @@ class Application(Frame):
         ###########################################################################
         #
         # moved configurable param initial values to params.py
+
+        self.bezier_weight_default = float(self.bezier_weight.get())
+        self.bezier_M1_default     = float(self.bezier_M1.get())
+        self.bezier_M2_default     = float(self.bezier_M2.get())
+
 
 #        self.board_name.set("LASER-M2") # Options are
 #                                        #    "LASER-M2",
@@ -714,6 +736,15 @@ class Application(Frame):
 
 ################################################################################
     def entry_set(self, val2, calc_flag=0, new=0):
+        """
+        Set color of a widget based on validity check of its value
+        udpate the status bar.
+
+        No parameter data is changed.
+
+           val2      is the tk widget
+           calc_flag is the result of the validity check
+        """
         if calc_flag == 0 and new==0:
             try:
                 self.statusbar.configure( bg = 'yellow' )
@@ -756,7 +787,8 @@ class Application(Frame):
 ################################################################################
     def Write_Config_File(self, event):
         
-        config_data = self.WriteConfig()
+        #config_data = self.WriteConfig()
+        config_data = self.p.report(self)
         config_file = "k40_whisperer.txt"
         configname_full = self.HOME_DIR + "/" + config_file
 
@@ -795,99 +827,6 @@ class Application(Frame):
             pass
 
     ################################################################################
-    def WriteConfig(self):
-        global Zero
-        header = []
-        header.append('( K40 Whisperer Settings: '+version+' )')
-        header.append('( by Scorch - 2019 )')
-        header.append("(=========================================================)")
-        # BOOL
-        header.append('(k40_whisperer_set include_Reng  %s )'  %( int(self.include_Reng.get())  ))
-        header.append('(k40_whisperer_set include_Veng  %s )'  %( int(self.include_Veng.get())  ))
-        header.append('(k40_whisperer_set include_Vcut  %s )'  %( int(self.include_Vcut.get())  ))
-        header.append('(k40_whisperer_set include_Gcde  %s )'  %( int(self.include_Gcde.get())  ))
-        header.append('(k40_whisperer_set include_Time  %s )'  %( int(self.include_Time.get())  ))
-        
-        header.append('(k40_whisperer_set halftone      %s )'  %( int(self.halftone.get())      ))
-        header.append('(k40_whisperer_set HomeUR        %s )'  %( int(self.HomeUR.get())        ))
-        header.append('(k40_whisperer_set inputCSYS     %s )'  %( int(self.inputCSYS.get())     ))
-        header.append('(k40_whisperer_set advanced      %s )'  %( int(self.advanced.get())      ))
-        header.append('(k40_whisperer_set mirror        %s )'  %( int(self.mirror.get())        ))
-        header.append('(k40_whisperer_set rotate        %s )'  %( int(self.rotate.get())        ))
-        header.append('(k40_whisperer_set negate        %s )'  %( int(self.negate.get())        ))
-        
-        header.append('(k40_whisperer_set engraveUP     %s )'  %( int(self.engraveUP.get())     ))
-        header.append('(k40_whisperer_set init_home     %s )'  %( int(self.init_home.get())     ))
-        header.append('(k40_whisperer_set post_home     %s )'  %( int(self.post_home.get())     ))
-        header.append('(k40_whisperer_set post_beep     %s )'  %( int(self.post_beep.get())     ))
-        header.append('(k40_whisperer_set post_disp     %s )'  %( int(self.post_disp.get())     ))
-        header.append('(k40_whisperer_set post_exec     %s )'  %( int(self.post_exec.get())     ))
-        
-        header.append('(k40_whisperer_set pre_pr_crc    %s )'  %( int(self.pre_pr_crc.get())    ))
-        header.append('(k40_whisperer_set inside_first  %s )'  %( int(self.inside_first.get())  ))
-
-        header.append('(k40_whisperer_set comb_engrave  %s )'  %( int(self.comb_engrave.get())  ))
-        header.append('(k40_whisperer_set comb_vector   %s )'  %( int(self.comb_vector.get())   ))
-        header.append('(k40_whisperer_set zoom2image    %s )'  %( int(self.zoom2image.get())    ))
-        header.append('(k40_whisperer_set rotary        %s )'  %( int(self.rotary.get())        ))
-        header.append('(k40_whisperer_set reduced_mem   %s )'  %( int(self.reduced_mem.get())   ))
-        header.append('(k40_whisperer_set wait          %s )'  %( int(self.wait.get())          ))
-
-        header.append('(k40_whisperer_set trace_w_laser %s )'  %( int(self.trace_w_laser.get()) ))
-
-        # STRING.get()
-        header.append('(k40_whisperer_set board_name    %s )'  %( self.board_name.get()     ))
-        header.append('(k40_whisperer_set units         %s )'  %( self.units.get()          ))
-        header.append('(k40_whisperer_set Reng_feed     %s )'  %( self.Reng_feed.get()      ))
-        header.append('(k40_whisperer_set Veng_feed     %s )'  %( self.Veng_feed.get()      ))
-        header.append('(k40_whisperer_set Vcut_feed     %s )'  %( self.Vcut_feed.get()      ))
-        header.append('(k40_whisperer_set jog_step      %s )'  %( self.jog_step.get()       ))
-
-        header.append('(k40_whisperer_set Reng_passes   %s )'  %( self.Reng_passes.get()    ))
-        header.append('(k40_whisperer_set Veng_passes   %s )'  %( self.Veng_passes.get()    ))
-        header.append('(k40_whisperer_set Vcut_passes   %s )'  %( self.Vcut_passes.get()    ))
-        header.append('(k40_whisperer_set Gcde_passes   %s )'  %( self.Gcde_passes.get()    ))
-
-        header.append('(k40_whisperer_set rast_step     %s )'  %( self.rast_step.get()      ))
-        header.append('(k40_whisperer_set ht_size       %s )'  %( self.ht_size.get()        ))
-        
-        header.append('(k40_whisperer_set LaserXsize    %s )'  %( self.LaserXsize.get()     ))
-        header.append('(k40_whisperer_set LaserYsize    %s )'  %( self.LaserYsize.get()     ))
-        header.append('(k40_whisperer_set LaserXscale   %s )'  %( self.LaserXscale.get()    ))
-        header.append('(k40_whisperer_set LaserYscale   %s )'  %( self.LaserYscale.get()    ))
-        header.append('(k40_whisperer_set LaserRscale   %s )'  %( self.LaserRscale.get()    ))
-        header.append('(k40_whisperer_set rapid_feed    %s )'  %( self.rapid_feed.get()      ))
-        
-        header.append('(k40_whisperer_set gotoX         %s )'  %( self.gotoX.get()          ))
-        header.append('(k40_whisperer_set gotoY         %s )'  %( self.gotoY.get()          ))
-
-        header.append('(k40_whisperer_set bezier_M1     %s )'  %( self.bezier_M1.get()      ))
-        header.append('(k40_whisperer_set bezier_M2     %s )'  %( self.bezier_M2.get()      ))
-        header.append('(k40_whisperer_set bezier_weight %s )'  %( self.bezier_weight.get()  ))
-
-        header.append('(k40_whisperer_set trace_gap     %s )'  %( self.trace_gap.get()      ))
-        header.append('(k40_whisperer_set trace_speed   %s )'  %( self.trace_speed.get()    ))      
-        
-##        header.append('(k40_whisperer_set unsharp_flag  %s )'  %( int(self.unsharp_flag.get())  ))
-##        header.append('(k40_whisperer_set unsharp_r     %s )'  %( self.unsharp_r.get()      ))
-##        header.append('(k40_whisperer_set unsharp_p     %s )'  %( self.unsharp_p.get()      ))
-##        header.append('(k40_whisperer_set unsharp_t     %s )'  %( self.unsharp_t.get()      ))
-
-        header.append('(k40_whisperer_set t_timeout     %s )'  %( self.t_timeout.get()      ))
-        header.append('(k40_whisperer_set n_timeouts    %s )'  %( self.n_timeouts.get()     ))
-
-        header.append('(k40_whisperer_set ink_timeout   %s )'  %( self.ink_timeout.get()    ))
-
-        header.append('(k40_whisperer_set gcode_import_spindle_power_scale   %s )'  %( self.gcode_import_spindle_power_scale.get() ))
-        
-        header.append('(k40_whisperer_set designfile    \042%s\042 )' %( self.DESIGN_FILE   ))
-        header.append('(k40_whisperer_set inkscape_path \042%s\042 )' %( self.inkscape_path.get() ))
-        header.append('(k40_whisperer_set batch_path    \042%s\042 )' %( self.batch_path.get() ))
-
-        header.append("(=========================================================)")
-
-        return header
-        ######################################################
 
     def Quit_Click(self, event):
         self.statusMessage.set("Exiting!")
@@ -961,14 +900,24 @@ class Application(Frame):
         self.menu_View_Refresh()
 
     def LASER_Size(self):
+        # upper left corner, inches
         MINX = 0.0
         MAXY = 0.0
+
+        # lower right corner, inches
+        MAXX =  self.value('LaserXsize', 'in')
+        MINY = -self.value('LaserYsize', 'in')
+
         if self.units.get()=="in":
-            MAXX =  float(self.LaserXsize.get())
-            MINY = -float(self.LaserYsize.get())
+            params.assert_val(MAXX,  float(self.LaserXsize.get()))
+            params.assert_val(MINY, -float(self.LaserYsize.get()))
+            #MAXX =  float(self.LaserXsize.get())
+            #MINY = -float(self.LaserYsize.get())
         else:
-            MAXX =  float(self.LaserXsize.get())/25.4
-            MINY = -float(self.LaserYsize.get())/25.4
+            params.assert_val(MAXX,  float(self.LaserXsize.get())/25.4)
+            params.assert_val(MINY, -float(self.LaserYsize.get())/25.4)
+            #MAXX =  float(self.LaserXsize.get())/25.4
+            #MINY = -float(self.LaserYsize.get())/25.4
 
         return (MAXX-MINX,MAXY-MINY)
 
@@ -976,12 +925,19 @@ class Application(Frame):
     def XY_in_bounds(self,dx_inches,dy_inches, no_size=False):
         MINX = 0.0
         MAXY = 0.0
+        # lower right corner, inches
+        MAXX =  self.value('LaserXsize', 'in')
+        MINY = -self.value('LaserYsize', 'in')
         if self.units.get()=="in":
-            MAXX =  float(self.LaserXsize.get())
-            MINY = -float(self.LaserYsize.get())
+            params.assert_val(MAXX,  float(self.LaserXsize.get()))
+            params.assert_val(MINY, -float(self.LaserYsize.get()))
+        #    MAXX =  float(self.LaserXsize.get())
+        #    MINY = -float(self.LaserYsize.get())
         else:
-            MAXX =  float(self.LaserXsize.get())/25.4
-            MINY = -float(self.LaserYsize.get())/25.4
+            params.assert_val(MAXX,  float(self.LaserXsize.get())/25.4)
+            params.assert_val(MINY, -float(self.LaserYsize.get())/25.4)
+        #    MAXX =  float(self.LaserXsize.get())/25.4
+        #    MINY = -float(self.LaserYsize.get())/25.4
 
         if (self.inputCSYS.get() and self.RengData.image == None) or no_size:
             xmin,xmax,ymin,ymax = 0.0,0.0,0.0,0.0
@@ -1156,9 +1112,8 @@ class Application(Frame):
     def Entry_Reng_feed_Check(self):
         print(f'min raster speed {float(self.min_raster_speed.get())}')
         try:
-            value = float(self.Reng_feed.get())
-            vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = float(self.min_raster_speed.get())*vfactor
+            value = self.value('Reng_feed', self.velocity_units())
+            low_limit = self.value('min_raster_speed', self.velocity_units())
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1171,11 +1126,11 @@ class Application(Frame):
     #############################
     def Entry_Veng_feed_Check(self):
         try:
-            value = float(self.Veng_feed.get())
-            vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = float(self.min_vector_speed.get())*vfactor
+            value = self.value('Veng_feed', self.velocity_units())
+            low_limit = self.value('min_vector_speed', self.velocity_units())
+
             if  value < low_limit:
-                self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
+                self.statusMessage.set(" Feed Rate should be greater than or equal to %f %s" %(low_limit, self.velocity_units()))
                 return 2 # Value is invalid number
         except:
             return 3     # Value not a number
@@ -1186,9 +1141,8 @@ class Application(Frame):
     #############################
     def Entry_Vcut_feed_Check(self):
         try:
-            value = float(self.Vcut_feed.get())
-            vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = float(self.min_vector_speed.get())*vfactor
+            value = self.value('Vcut_feed', self.velocity_units())
+            low_limit = self.value('min_vector_speed', self.velocity_units())
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1496,11 +1450,10 @@ class Application(Frame):
     #############################
     def Entry_Laser_Rapid_Feed_Check(self):
         try:
-            value = float(self.rapid_feed.get())
-            vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = 1.0*vfactor
+            value = self.value('rapid_feed', self.velocity_units())
+            low_limit = self.value('min_rapid_feed', self.velocity_units())
             if  value !=0 and value < low_limit:
-                self.statusMessage.set(" Rapid feed should be greater than or equal to %f (or 0 for default speed) " %(low_limit))
+                self.statusMessage.set(" Rapid feed should be greater than or equal to %f %s (or 0 for default speed) " %(low_limit, self.velocity_units()))
                 return 2 # Value is invalid number
         except:
             return 3     # Value not a number
@@ -1579,9 +1532,9 @@ class Application(Frame):
 
     def Entry_Trace_Speed_Check(self):
         try:
-            value = float(self.trace_speed.get())
-            vfactor=(25.4/60.0)/self.feed_factor()
-            low_limit = float(self.min_vector_speed.get())*vfactor
+            value = self.value('trace_feed', self.velocity_units())
+            low_limit = self.value('min_vector_feed', self.velocity_units())
+
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
                 return 2 # Value is invalid number
@@ -1638,16 +1591,19 @@ class Application(Frame):
             self.units_scale = 25.4
         else:
             return
-        self.LaserXsize.set ( self.Scale_Text_Value('%.2f',self.LaserXsize.get()  ,factor ) )
-        self.LaserYsize.set ( self.Scale_Text_Value('%.2f',self.LaserYsize.get()  ,factor ) )
-        self.jog_step.set   ( self.Scale_Text_Value('%.3f',self.jog_step.get()    ,factor ) )
-        self.gotoX.set      ( self.Scale_Text_Value('%.3f',self.gotoX.get()       ,factor ) )
-        self.gotoY.set      ( self.Scale_Text_Value('%.3f',self.gotoY.get()       ,factor ) )
-        self.Reng_feed.set  ( self.Scale_Text_Value('%.1f',self.Reng_feed.get()   ,vfactor) )
-        self.Veng_feed.set  ( self.Scale_Text_Value('%.1f',self.Veng_feed.get()   ,vfactor) )
-        self.Vcut_feed.set  ( self.Scale_Text_Value('%.1f',self.Vcut_feed.get()   ,vfactor) )
-        self.trace_speed.set( self.Scale_Text_Value('%.1f',self.trace_speed.get() ,vfactor) )
-        self.rapid_feed.set ( self.Scale_Text_Value('%.1f',self.rapid_feed.get()  ,vfactor) )
+
+        self.p.sync_units(self)
+
+#        self.LaserXsize.set ( self.Scale_Text_Value('%.2f',self.LaserXsize.get()  ,factor ) )
+#        self.LaserYsize.set ( self.Scale_Text_Value('%.2f',self.LaserYsize.get()  ,factor ) )
+#        self.jog_step.set   ( self.Scale_Text_Value('%.3f',self.jog_step.get()    ,factor ) )
+#        self.gotoX.set      ( self.Scale_Text_Value('%.3f',self.gotoX.get()       ,factor ) )
+#        self.gotoY.set      ( self.Scale_Text_Value('%.3f',self.gotoY.get()       ,factor ) )
+#        self.Reng_feed.set  ( self.Scale_Text_Value('%.1f',self.Reng_feed.get()   ,vfactor) )
+#        self.Veng_feed.set  ( self.Scale_Text_Value('%.1f',self.Veng_feed.get()   ,vfactor) )
+#        self.Vcut_feed.set  ( self.Scale_Text_Value('%.1f',self.Vcut_feed.get()   ,vfactor) )
+#        self.trace_speed.set( self.Scale_Text_Value('%.1f',self.trace_speed.get() ,vfactor) )
+#        self.rapid_feed.set ( self.Scale_Text_Value('%.1f',self.rapid_feed.get()  ,vfactor) )
 
     def Scale_Text_Value(self,format_txt,Text_Value,factor):
         try:
@@ -2410,165 +2366,9 @@ class Application(Frame):
 
 
     def Open_Settings_File(self,filename):
-        try:
-            fin = open(filename,'r')
-        except:
-            fmessage("Unable to open file: %s" %(filename))
-            return
-        
-        text_codes=[]
-        ident = "k40_whisperer_set"
-        for line in fin:
-            try:
-                if ident in line:
-                    # BOOL
-                    if "include_Reng"  in line:
-                        self.include_Reng.set(line[line.find("include_Reng"):].split()[1])
-                    elif "include_Veng"  in line:
-                        self.include_Veng.set(line[line.find("include_Veng"):].split()[1])
-                    elif "include_Vcut"  in line:
-                        self.include_Vcut.set(line[line.find("include_Vcut"):].split()[1])
-                    elif "include_Gcde"  in line:
-                        self.include_Gcde.set(line[line.find("include_Gcde"):].split()[1])
-                    elif "include_Time"  in line:
-                        self.include_Time.set(line[line.find("include_Time"):].split()[1])
-                    elif "halftone"  in line:
-                        self.halftone.set(line[line.find("halftone"):].split()[1])
-                    elif "negate"  in line:
-                        self.negate.set(line[line.find("negate"):].split()[1])
-                    elif "HomeUR"  in line:
-                        self.HomeUR.set(line[line.find("HomeUR"):].split()[1])                    
-                    elif "inputCSYS"  in line:
-                        self.inputCSYS.set(line[line.find("inputCSYS"):].split()[1])
-                    elif "advanced"  in line:
-                        self.advanced.set(line[line.find("advanced"):].split()[1])
-                    elif "mirror"  in line:
-                        self.mirror.set(line[line.find("mirror"):].split()[1])
-                    elif "rotate"  in line:
-                        self.rotate.set(line[line.find("rotate"):].split()[1])
-                    elif "engraveUP"  in line:
-                        self.engraveUP.set(line[line.find("engraveUP"):].split()[1])
-                    elif "init_home"  in line:
-                        self.init_home.set(line[line.find("init_home"):].split()[1])
-                    elif "post_home"  in line:
-                        self.post_home.set(line[line.find("post_home"):].split()[1])
-                    elif "post_beep"  in line:
-                        self.post_beep.set(line[line.find("post_beep"):].split()[1])
-                    elif "post_disp"  in line:
-                        self.post_disp.set(line[line.find("post_disp"):].split()[1])
-                    elif "post_exec"  in line:
-                        self.post_exec.set(line[line.find("post_exec"):].split()[1])
-                        
-                    elif "pre_pr_crc"  in line:
-                        self.pre_pr_crc.set(line[line.find("pre_pr_crc"):].split()[1])
-                    elif "inside_first"  in line:
-                        self.inside_first.set(line[line.find("inside_first"):].split()[1])
-                    elif "comb_engrave"  in line:
-                        self.comb_engrave.set(line[line.find("comb_engrave"):].split()[1])
-                    elif "comb_vector"  in line:
-                        self.comb_vector.set(line[line.find("comb_vector"):].split()[1])
-                    elif "zoom2image"  in line:
-                        self.zoom2image.set(line[line.find("zoom2image"):].split()[1])
+        self.p.read(filename, self)
 
-                    elif "rotary"  in line:
-                         self.rotary.set(line[line.find("rotary"):].split()[1])
-                    elif "reduced_mem"  in line:
-                         self.reduced_mem.set(line[line.find("reduced_mem"):].split()[1])
-                    elif "wait"  in line:
-                         self.wait.set(line[line.find("wait"):].split()[1])
-
-                    elif "trace_w_laser"  in line:
-                         self.trace_w_laser.set(line[line.find("trace_w_laser"):].split()[1])
-            
-                    # STRING.set()
-                    elif "board_name" in line:
-                        self.board_name.set(line[line.find("board_name"):].split()[1])
-                    elif "units"    in line:
-                        self.units.set(line[line.find("units"):].split()[1])
-                    elif "Reng_feed"    in line:
-                         self.Reng_feed .set(line[line.find("Reng_feed"):].split()[1])
-                    elif "Veng_feed"    in line:
-                         self.Veng_feed .set(line[line.find("Veng_feed"):].split()[1])  
-                    elif "Vcut_feed"    in line:
-                         self.Vcut_feed.set(line[line.find("Vcut_feed"):].split()[1])
-                    elif "jog_step"    in line:
-                         self.jog_step.set(line[line.find("jog_step"):].split()[1])
-                         
-                    elif "Reng_passes"    in line:
-                         self.Reng_passes.set(line[line.find("Reng_passes"):].split()[1])
-                    elif "Veng_passes"    in line:
-                         self.Veng_passes.set(line[line.find("Veng_passes"):].split()[1])
-                    elif "Vcut_passes"    in line:
-                         self.Vcut_passes.set(line[line.find("Vcut_passes"):].split()[1])
-                    elif "Gcde_passes"    in line:
-                         self.Gcde_passes.set(line[line.find("Gcde_passes"):].split()[1])
-
-                    elif "rast_step"    in line:
-                         self.rast_step.set(line[line.find("rast_step"):].split()[1])
-                    elif "ht_size"    in line:
-                         self.ht_size.set(line[line.find("ht_size"):].split()[1])
-
-                    elif "LaserXsize"    in line:
-                         self.LaserXsize.set(line[line.find("LaserXsize"):].split()[1])
-                    elif "LaserYsize"    in line:
-                         self.LaserYsize.set(line[line.find("LaserYsize"):].split()[1])
-
-                    elif "LaserXscale"    in line:
-                         self.LaserXscale.set(line[line.find("LaserXscale"):].split()[1])
-                    elif "LaserYscale"    in line:
-                         self.LaserYscale.set(line[line.find("LaserYscale"):].split()[1])
-                    elif "LaserRscale"    in line:
-                         self.LaserRscale.set(line[line.find("LaserRscale"):].split()[1])
-
-                    elif "rapid_feed"    in line:
-                         self.rapid_feed.set(line[line.find("rapid_feed"):].split()[1])
-                         
-                    elif "gotoX"    in line:
-                         self.gotoX.set(line[line.find("gotoX"):].split()[1])
-                    elif "gotoY"    in line:
-                         self.gotoY.set(line[line.find("gotoY"):].split()[1])
-
-                    elif "bezier_M1"    in line:
-                         self.bezier_M1.set(line[line.find("bezier_M1"):].split()[1])
-                    elif "bezier_M2"    in line:
-                         self.bezier_M2.set(line[line.find("bezier_M2"):].split()[1])
-                    elif "bezier_weight"    in line:
-                         self.bezier_weight.set(line[line.find("bezier_weight"):].split()[1])
-                    elif "trace_gap"    in line:
-                         self.trace_gap.set(line[line.find("trace_gap"):].split()[1])
-                    elif "trace_speed"    in line:
-                         self.trace_speed.set(line[line.find("trace_speed"):].split()[1])
-
-    ##                elif "unsharp_flag"    in line:
-    ##                     self.unsharp_flag.set(line[line.find("unsharp_flag"):].split()[1])
-    ##                elif "unsharp_r"    in line:
-    ##                     self.unsharp_r.set(line[line.find("unsharp_r"):].split()[1])
-    ##                elif "unsharp_p"    in line:
-    ##                     self.unsharp_p.set(line[line.find("unsharp_p"):].split()[1])
-    ##                elif "unsharp_t"    in line:
-    ##                     self.unsharp_t.set(line[line.find("unsharp_t"):].split()[1])
-            
-                    elif "t_timeout"    in line:
-                         self.t_timeout.set(line[line.find("t_timeout"):].split()[1])
-                    elif "n_timeouts"    in line:
-                         self.n_timeouts.set(line[line.find("n_timeouts"):].split()[1])
-
-                    elif "ink_timeout"    in line:
-                         self.ink_timeout.set(line[line.find("ink_timeout"):].split()[1])
-
-                    elif "designfile"    in line:
-                           self.DESIGN_FILE=(line[line.find("designfile"):].split("\042")[1])
-                    elif "inkscape_path"    in line:
-                         self.inkscape_path.set(line[line.find("inkscape_path"):].split("\042")[1])
-                    elif "batch_path"    in line:
-                         self.batch_path.set(line[line.find("batch_path"):].split("\042")[1])
-
-                         
-            except:
-                #Ignoring exeptions during reading data from line 
-                pass
-                     
-        fin.close()
+        self.DESIGN_FILE = self.designfile.get()
 
         fileName, fileExtension = os.path.splitext(self.DESIGN_FILE)
         init_file=os.path.basename(fileName)
@@ -2597,7 +2397,8 @@ class Application(Frame):
     ##########################################################################
     ##########################################################################
     def menu_File_Save(self):
-        settings_data = self.WriteConfig()
+        #settings_data = self.WriteConfig()
+        settings_data = self.p.report(self)
         init_dir = os.path.dirname(self.DESIGN_FILE)
         if ( not os.path.isdir(init_dir) ):
             init_dir = self.HOME_DIR
@@ -2745,37 +2546,37 @@ class Application(Frame):
         self.Move_Arbitrary( dx_inches,dy_inches )
 
     def Move_Arb_Right(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Move_Arb_Step( JOG_STEP,0 )
 
     def Move_Arb_Left(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Move_Arb_Step( -JOG_STEP,0 )
 
     def Move_Arb_Up(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Move_Arb_Step( 0,JOG_STEP )
 
     def Move_Arb_Down(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Move_Arb_Step( 0,-JOG_STEP )
 
     ####################################################
 
     def Move_Right(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Rapid_Move( JOG_STEP,0 )
 
     def Move_Left(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Rapid_Move( -JOG_STEP,0 )
 
     def Move_Up(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Rapid_Move( 0,JOG_STEP )
 
     def Move_Down(self,dummy=None):
-        JOG_STEP = float( self.jog_step.get() )
+        JOG_STEP = self.value('jog_step', self.units.get())
         self.Rapid_Move( 0,-JOG_STEP )
 
     def Rapid_Move(self,dx,dy):
@@ -2846,7 +2647,7 @@ class Application(Frame):
         self.stop[0]=False
         Rapid_data=[]
         Rapid_inst = egv(target=lambda s:Rapid_data.append(s))
-        Rapid_feed = float(self.rapid_feed.get())*self.feed_factor()
+        Rapid_feed = self.value('rapid_feed', 'mm/sec')
         Rapid_inst.make_egv_rapid(dxmils,dymils,Feed=Rapid_feed,board_name=self.board_name.get())
         self.send_egv_data(Rapid_data, 1, None)
         self.stop[0]=True
@@ -3383,12 +3184,8 @@ class Application(Frame):
 
 
     def feed_factor(self):
-        if self.units.get()=='in':
-            feed_factor = 25.4/60.0
-        else:
-            feed_factor = 1.0
-        return feed_factor
-  
+        raise Exception("feed_factor() is deprectated: use self.value(name, 'mm/sec')")
+
 
     def send_data(self, operation_type=None):
 
@@ -3474,7 +3271,7 @@ class Application(Frame):
             FlipXoffset = None
 
         if self.rotary.get():
-            Rapid_Feed = float(self.rapid_feed.get())*feed_factor
+            Rapid_Feed = self.value('rapid_feed', 'mm/sec')
         else:
             Rapid_Feed = 0.0
         
@@ -3489,13 +3286,12 @@ class Application(Frame):
            cutcoords[i] = [None]
            passes[i] = 0;
 
-        feed_factor = self.feed_factor()
-        rapid = self.k40.linear_rapid * feed_factor
+        rapid = self.value('linear_rapid_feed', 'mm/sec')
 
         startx, starty, FlipXoffset, Rapid_Feed = self.prep_params()
 
         if (operation_type.find("Vector_Cut") > -1) and  (self.VcutData.ecoords!=[]):
-            feed = float(self.Vcut_feed.get())*feed_factor
+            feed = self.value('Vcut_feed', 'mm/sec')
             power = float(self.Vcut_pow.get())
 
             self.statusMessage.set("Vector Cut: Determining Cut Order....")
@@ -3514,7 +3310,7 @@ class Application(Frame):
 
 
         if (operation_type.find("Vector_Eng") > -1) and  (self.VengData.ecoords!=[]):
-            feed = float(self.Veng_feed.get())*feed_factor
+            feed = self.value('Veng_feed', 'mm/sec')
             power = float(self.Veng_pow.get())
 
             self.statusMessage.set("Vector Eng: Determining Cut Order....")
@@ -3529,7 +3325,7 @@ class Application(Frame):
 
 
         if (operation_type.find("Raster_Eng") > -1) and  (self.RengData.ecoords!=[]):
-            feed = float(self.Reng_feed.get())*feed_factor
+            feed = self.value('Reng_feed', 'mm/sec')
             power = float(self.Reng_pow.get())
 
             self.statusMessage.set("Raster Eng: Determining Cut Order....")
@@ -3544,9 +3340,7 @@ class Application(Frame):
 
 
         if (operation_type.find("Trace_Eng") > -1) and  (self.trace_coords!=[]):
-            feed = float(self.Reng_feed.get())*feed_factor
-            power = float(self.Reng_pow.get())
-            feed = float(self.trace_speed.get())*feed_factor
+            feed = self.value('trace_speed', 'mm/sec')
             power = 0
             if self.trace_w_laser.get(): power = 5
 
@@ -3585,11 +3379,10 @@ class Application(Frame):
             Vector_Cut_data=[]
             G_code_Cut_data=[]
 
-            feed_factor=self.feed_factor()
             startx, starty, FlipXoffset, Rapid_Feed = self.prep_params()
 
             if (operation_type.find("Vector_Cut") > -1) and  (self.VcutData.ecoords!=[]):
-                Feed_Rate = float(self.Vcut_feed.get())*feed_factor
+                Feed_Rate = self.value('Vcut_feed', 'mm/sec')
                 self.statusMessage.set("Vector Cut: Determining Cut Order....")
                 self.master.update()
                 if not self.VcutData.sorted and self.inside_first.get():
@@ -3643,7 +3436,7 @@ class Application(Frame):
 
 
             if (operation_type.find("Vector_Eng") > -1) and  (self.VengData.ecoords!=[]):
-                Feed_Rate = float(self.Veng_feed.get())*feed_factor
+                Feed_Rate = self.value('Veng_feed', 'mm/sec')
                 self.statusMessage.set("Vector Engrave: Determining Cut Order....")
                 self.master.update()
                 if not self.VengData.sorted and self.inside_first.get():
@@ -3673,7 +3466,7 @@ class Application(Frame):
 
 
             if (operation_type.find("Trace_Eng") > -1) and (self.trace_coords!=[]):
-                Feed_Rate = float(self.trace_speed.get())*feed_factor
+                Feed_Rate = self.value('trace_speed', 'mm/sec')
                 laser_on = self.trace_w_laser.get()
                 self.statusMessage.set("Generating EGV data...")
                 self.master.update()
@@ -3694,7 +3487,7 @@ class Application(Frame):
                 
                 
             if (operation_type.find("Raster_Eng") > -1) and  (self.RengData.ecoords!=[]):
-                Feed_Rate = float(self.Reng_feed.get())*feed_factor
+                Feed_Rate = self.value('Reng_feed', 'mm/sec')
                 Raster_step = self.get_raster_step_1000in()
                 if not self.engraveUP.get():
                     Raster_step = -Raster_step
@@ -4626,10 +4419,12 @@ class Application(Frame):
         wc = float(cszw/2)
         hc = float(cszh/2)        
         
-        maxx = float(self.LaserXsize.get()) / self.units_scale
+        #maxx = float(self.LaserXsize.get()) / self.units_scale
+        maxx =  self.value('LaserXsize', 'in')
         minx = 0.0
         maxy = 0.0
-        miny = -float(self.LaserYsize.get()) / self.units_scale
+        #miny = -float(self.LaserYsize.get()) / self.units_scale
+        miny = -self.value('LaserYsize', 'in')
         midx=(maxx+minx)/2
         midy=(maxy+miny)/2
         

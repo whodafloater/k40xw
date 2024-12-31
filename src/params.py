@@ -47,6 +47,7 @@ import os
 class Params:
     def __init__(self):
 
+        self.debug = False
         self.title = "K40 Whisperer Settings"
         self.ident = "k40_whisperer_set"
         self.byline = "by Scorch - 2019, whodafloater 2024"
@@ -163,8 +164,8 @@ class Params:
         d['inkscape_path']     = [StringVar,   "", 0,    1, "", "%s", ""]
         d['batch_path']        = [StringVar,   "", 0,    1, "", "%s", ""]
 
-        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "in/min", "%s", 0]  # in/min
-        d['min_raster_speed']  = [StringVar,   12,  12,   100, "in/min", "%s", 0]  # in/min
+        d['min_vector_speed']  = [StringVar,   1.1, 1.1,  100, "in/min", "%s", 0]
+        d['min_raster_speed']  = [StringVar,   12,  12,   100, "in/min", "%s", 0]
 
     # Did not need this... idea was to create a parameter class that
     # K40 W would subclass 
@@ -308,8 +309,7 @@ class Params:
         if 'px' in new:
             s = dpi/25.4
 
-        print(f'convert: {value} {old} to {new} --> {value*s}')
-
+        #print(f'convert: {value} {old} to {new} --> {value*s}')
         return value * s
 
     def value(self, context, name, unit):
@@ -343,7 +343,7 @@ class Params:
         self.d[name][4] = 'in'
         newvalue = self.fmtstr(name).format(newvalue)
         context.__dict__[name].set(newvalue)
-        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+        if self.debug: print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
 
     def in_to_mm(self, context, name):
         u = self.d[name][4]
@@ -353,7 +353,7 @@ class Params:
         self.d[name][4] = 'mm'
         newvalue = self.fmtstr(name).format(newvalue)
         context.__dict__[name].set(newvalue)
-        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+        if self.debug: print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
 
     def mmps_to_inpm(self, context, name):
         u = self.d[name][4]
@@ -363,7 +363,7 @@ class Params:
         self.d[name][4] = 'in/min'
         newvalue = self.fmtstr(name).format(newvalue)
         context.__dict__[name].set(newvalue)
-        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+        if self.debug: print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
 
     def inpm_to_mmps(self, context, name):
         u = self.d[name][4]
@@ -373,7 +373,7 @@ class Params:
         self.d[name][4] = 'mm/sec'
         newvalue = self.fmtstr(name).format(newvalue)
         context.__dict__[name].set(newvalue)
-        print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
+        if self.debug: print(f'unit change: {name} {context.__dict__[name].get()} {self.d[name][4]}')
 
     def sync_units(self, context):
         units = context.__dict__['units'].get()
@@ -405,7 +405,7 @@ class Params:
 
 def assert_val(x, y):
     if __debug__:
-       print(f'    assertion: ({x}) == ({y}) ?')
+       #print(f'    assertion: ({x}) == ({y}) ?')
        assert(abs(x - y) < 1e-6)
        #print(f'assertion passed: {x} {y}')
 

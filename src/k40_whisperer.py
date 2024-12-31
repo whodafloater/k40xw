@@ -130,7 +130,9 @@ class Application(Frame):
 
         # initialize parameters
         self.p = params.Params()
+        self.p.debug = DEBUG
         self.p.instantiate_params(self)
+        self.p.sync_units(self)
 
         # process command line args
         file_units = None
@@ -2357,6 +2359,8 @@ class Application(Frame):
         else:
             self.units.set('mm')
             self.funits.set('mm/s')
+
+        self.p.sync_units(self)
 
         temp_name, fileExtension = os.path.splitext(filename)
         file_base=os.path.basename(temp_name)

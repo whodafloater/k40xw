@@ -62,13 +62,14 @@ class Params:
         f = dict()
         self.f = f
         f['mm'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -9:'0.9f', 'd':'.0f'}
-        f['in'] = {1:'.1f', 0:'.2f', -1:'.3f', -2:'.4f', -9:'.11f', 'd':'.0f'}
+        f['in'] = {1:'.1f', 0:'.2f', -1:'.3f', -2:'.4f', -3:'.5f', -9:'.11f', 'd':'.0f'}
         f['mm/sec'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', 'd':'.0f'}
         f['in/min'] = {1:'.1f', 0:'.2f', -1:'.3f', -2:'.4f', 'd':'.0f'}
         f['rat'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f', -4:'.4f'}
         f['pct'] = {1:'.0f', 0:'.0f', -1:'.1f', 'd':'.0f'}
         f['sec'] = {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f'}
         f['u'] =   {1:'.0f', 0:'.0f', -1:'.1f', -2:'.2f', -3:'.3f', 'd':'.0f'}
+        f['mil'] = {0:'.0f', 'd':'.0f'}
         f['dpi'] = {0:'.0f', 'd':'.0f'}
         f['px'] =  {0:'.0f', 'd':'.0f'}
         f['""'] =  {'""':'s', '':'s'}
@@ -133,7 +134,7 @@ class Params:
         d['units']             = [StringVar,   "mm", 0,    1,    "", ":s", ""]
 
         d['jog_step']          = [StringVar,   10, 0.1,   100, "mm", ":s", -1]
-        d['rast_step']         = [StringVar,   0.002, 0,  1,   "in", ":s", -2]
+        d['rast_step_mil']     = [StringVar,   4,    0,   1,   "mil", ":s", 0]  # fixed unit
         d['ht_size']           = [StringVar,   500, 0,    1,   "px", ":s", "d"]
 
         d['LaserXsize']        = [StringVar,   425, 0,    1000, "mm", ":s", 0]
@@ -221,6 +222,10 @@ class Params:
         header.append(f'( {self.byline} )')
         header.append("(=========================================================)")
 
+        #for name in d:
+        #    objtype = d[name][0]
+        #    print(f'{name}  {context}  {context.__dict__[name]}')
+
         for name in d:
             objtype = d[name][0]
             value = context.__dict__[name].get()
@@ -272,7 +277,12 @@ class Params:
             value = f.pop(0)
             unit = f.pop(0)
 
-            #print(f' name: {name:35s} | {value}')
+            # file may be out of date and have old names 
+            if not name in self.d:
+                print(f'WARN: ignoring old name in settings file: {filename} name: {name:35s} | {value}')
+                continue
+
+            print(f'read {filename}   name: {name:35s} | {value}')
             context.__dict__[name].set(value)
 
         # K40 does more init based on the new value
@@ -298,6 +308,8 @@ class Params:
             value = 1 / value
         if 'px' in old:
             s = 25.4/dpi
+        if 'mil' in old:
+            s = s * 0.0254
 
         if 'in' in new:
             s = s / 25.4
@@ -308,6 +320,8 @@ class Params:
             value = 1 / value
         if 'px' in new:
             s = dpi/25.4
+        if 'mil' in new:
+            s = s / 0.0254
 
         #print(f'convert: {value} {old} to {new} --> {value*s}')
         return value * s

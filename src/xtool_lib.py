@@ -4,19 +4,8 @@ X-Tool D1 machine class for K40 Whisperer
 
 Copyright (C) 2024 whodafloater
 
-This program is free software; you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation; either version 2 of the License, or
-(at your option) any later version.
+MIT licsence
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-GNU General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with this program; if not, write to the Free Software
-Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 '''
 #try:
 #    import usb.core
@@ -36,6 +25,18 @@ import time
 import requests
 import json
 import math
+import re
+
+import threading
+import queue
+
+from dataclasses import dataclass, field
+from typing import Any
+
+@dataclass(order=True)
+class Xmsg:
+    priority: int
+    item: Any=field(compare=False)
 
 ##############################################################################
 
@@ -55,7 +56,7 @@ class xtool_CLASS:
         self.state = 0
 
         self.linear_rapid = 3000/60  # mm/s
-         
+
         self.spindle_power_scale = 10
         self.safety_power_scale = 1.0
 
@@ -66,6 +67,69 @@ class xtool_CLASS:
 
         self.debug = False
 
+        self.drlocx = 0
+        self.drlocy = 0
+
+        self.q = queue.PriorityQueue()
+        self.lock = threading.Lock()
+
+        self.start()
+        self.lock.acquire()
+        self.lock.release()
+
+        for param in self.__dict__:
+           print(f'xtool_lib: param: {param}')
+
+    def worker(self):
+        while True:
+            pi = self.q.get()
+            #print(f'\n\nWorking on: pri:{pi.priority}  item:{pi.item}    nargs={len(pi.item)}')
+
+            nargs = len(pi.item)
+            command = pi.item[0]
+            itemargs = pi.item[1:nargs]  
+            lastarg = pi.item[nargs-1]
+
+            #print(f'    command: {command:20s} {itemargs}   lastarg={lastarg}')
+
+            kwargs = dict()
+            args = []
+
+            for n in itemargs:
+            #    print(f'  arg: {n}')
+                if ':' in str(n):
+                     f = re.split(r'[() \t:{}]+', n)
+                     if f[0] == '': f.pop(0)
+            #         print(f'  found a dict: {n}   {f}')
+                     while len(f) > 1:
+                        key = f.pop(0)
+                        val = f.pop(0)
+                        kwargs[key]=val
+                else:
+                     args.append(n)
+
+            #print(f'   args:  {args}')
+            #print(f' kwargs:  {kwargs}')
+            print(f'    command: {command:20s} {args} {kwargs}')
+
+            try: 
+                method = getattr(self, command)
+                method(*args, **kwargs)
+            except AttributeError:
+                print(f' not implemented: {command}')
+
+            #time.sleep(1)
+            #print(f'Finished {pi}')
+            self.q.task_done()
+
+    def start(self):
+        threading.Thread(target=self.worker, daemon=True).start()
+
+    def junk(self, *args, **kwargs):
+        print(f'------------------ xtool_lib:  junk args:{args}   kw:{kwargs}')
+
+    def abort(self, *args, **kwargs):
+        print(f'------------------ xtool_lib:  abort args:{args}  kw:{kwargs}')
 
     def initialize_device(self, Location=None, verbose=False):
         if Location != None:
@@ -89,6 +153,7 @@ class xtool_CLASS:
         return r['result']
 
     def get_working_state(self):
+        self.blast([f'/system?action=get_working_sta'])
         return self.blast([f'/system?action=get_working_sta'])
 
     def get_status(self):
@@ -104,6 +169,8 @@ class xtool_CLASS:
         self.blast(s, expect='fail')
 
     def home_position(self):
+        self.drlocx = 0
+        self.drlocy = 0
         print("home")
 
     def reset_usb(self):
@@ -156,6 +223,12 @@ class xtool_CLASS:
             r = json.JSONDecoder().decode(replystr)
             #print(r)
             d = d | r
+
+            if 'working' in d:
+                self.__working = d['working']
+
+            if 'status' in d:
+                self.__status = d['status']
 
             if d['result'] != expect:
                 msg = f"bad result from device: {d}"
@@ -298,6 +371,8 @@ class xtool_CLASS:
         #while self.state != 0:
         #   self.update_state()
 
+        x0 = self.drlocx
+        y0 = self.drlocy
         self.mark = time.time()
         estjobtime = 0
         # because we are sending gcode line by line there is no way
@@ -338,7 +413,12 @@ class xtool_CLASS:
                #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
                time.sleep(0.010)
 
+           self.drlocx = x0 + segtime[i][4]
+           self.drlocy = y0 + segtime[i][5]
+
         self.wait_for_laser_to_finish(update_gui, stop_calc)
+        self.drlocx = x0 + segtime[len(gcode)-1][4]
+        self.drlocy = y0 + segtime[len(gcode)-1][5]
 
         NoSleep.inhibit()
 
@@ -394,7 +474,11 @@ class xtool_CLASS:
 
 
     def rapid_move(self, dxmils, dymils):
+        self.lock.acquire()
         if self.debug: print(f'xtool_lib: rapid_move: dx:{dxmils} mils  dy:{dymils} mils')
+        x0 = self.drlocx
+        y0 = self.drlocy
+
         xloc = dxmils * 0.0254     # mm
         yloc = -dymils * 0.0254    # mm
         feed = 3000                # mm/min
@@ -402,18 +486,42 @@ class xtool_CLASS:
         # Leave this out and XTool will progress to a timeout, blink red, then green
         # During a long rapid led will transition to blinking blue
         # after the M108 it will go solid green
-        s = ['/cmd?cmd=M17+S1',
+        s = [
+             '/cmd?cmd=M17+S1',
              '/cmd?cmd=G92X0Y0',
              '/cmd?cmd=G90',
              '/cmd?cmd=G1X' + str(xloc) + 'Y' + str(yloc) + 'F' + str(feed) + 'S0',
              '/cmd?cmd=M108'
             ]
         self.blast(s)
+        self.mark = time.time()
 
         # time estimate, sec = length / (3000 mm/min) * 60 sec/min
-        time_est = math.sqrt(xloc * xloc + yloc * yloc) / feed * 60
-        if self.debug: print(f'rapid time = {time_est:.2f} sec')
-        return
+        estjobtime = math.sqrt(xloc * xloc + yloc * yloc) / feed * 60
+        if self.debug: print(f'rapid time = {estjobtime:.2f} sec')
+
+        if estjobtime > 0.010:
+            elapsed = (time.time() - self.mark) / estjobtime
+            while elapsed < 1.2:
+                self.drlocx = x0 + xloc * elapsed
+                self.drlocy = y0 + yloc * elapsed
+                #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
+                #print(f'{self.get_status()} {self.get_working_state()}')
+                self.get_working_state()
+                if self.__working == '0':
+                    break
+                time.sleep(0.010)
+                elapsed = (time.time() - self.mark) / estjobtime
+        else:
+            self.get_working_state()
+            while self.__working != '0':
+                self.get_working_state()
+
+        self.drlocx = x0 + xloc
+        self.drlocy = y0 + yloc
+
+        self.lock.release()
+        return 
 
     def ecoord_to_gcode(self, data):
          gcode=[]
@@ -453,7 +561,7 @@ class xtool_CLASS:
          ledon = False
 
          for i in range(len(gcode)):
-            segtime.append([dt, rapid, feed, power])
+            segtime.append([dt, rapid, feed, power, 0, 0])
 
          for i in range(0,len(data)):
               x = data[i][0] * scale
@@ -476,7 +584,7 @@ class xtool_CLASS:
 
                   gcode.append(f'G0 X{x:0.3f} Y{y:0.3f}')
                   dt = dist / rapid * 60  # sec
-                  segtime.append([dt, rapid, current_feed, current_power])
+                  segtime.append([dt, rapid, current_feed, current_power, x, y])
 
               else:
                   # cut
@@ -497,7 +605,7 @@ class xtool_CLASS:
 
                   gcode.append(f'G1 X{x:0.3f} Y{y:0.3f}')
                   dt = dist / current_feed * 60  # sec
-                  segtime.append([dt, rapid, current_feed, current_power])
+                  segtime.append([dt, rapid, current_feed, current_power, x, y])
 
               lastloop = loop
 
@@ -508,10 +616,10 @@ class xtool_CLASS:
          dist = math.sqrt(dx*dx + dy*dy)
          dt = dist / rapid * 60  # sec
          gcode.append(f'G0 X{x:0.3f} Y{y:0.3f}')
-         segtime.append([dt, rapid, current_feed, current_power])
+         segtime.append([dt, rapid, current_feed, current_power, x, y])
 
          gcode.append(f'M18')
-         segtime.append([0, 0, 0, 0])
+         segtime.append([0, 0, 0, 0, 0, 0])
 
          if self.safety_power_scale == 0:
             gcode.append(f'M106 S0')    # led cross off
@@ -574,7 +682,6 @@ class xtool_CLASS:
         for i in range(1):
             time.sleep(0.30)
             print(f'{self.get_status()} {self.get_working_state()}')
-
 
 
 if __name__ == "__main__":

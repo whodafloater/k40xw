@@ -32,6 +32,7 @@ from egv import egv
 import params
 from nano_library import K40_CLASS
 from xtool_lib import xtool_CLASS
+from xtool_lib import Xmsg
 from machine_base import MachineBase
 
 from dxf import DXF_CLASS
@@ -82,6 +83,7 @@ except:
 
 import math
 from time import time
+from time import sleep
 import os
 import re
 import binascii
@@ -170,7 +172,24 @@ class Application(Frame):
         params.assert_val(float(self.numcheck.get()), self.p.numcheck)
         params.assert_val(self.value('numcheck', 'in'), self.p.numcheck/25.4)
         # tkinter mainloop does the rest
+
+        self.tick()
         return
+
+    def tick(self):
+        self.move_tracker()
+        self.after(100, self.tick)
+
+    def move_tracker(self):
+        if self.k40 != None:
+            x = self.k40.drlocx 
+            y = self.k40.drlocy 
+        else:
+            x = 0
+            y = 0
+        self.PreviewCanvas.moveto('tracker', *self.Plot_XY(x/25.4, -y/25.4))
+        self.PreviewCanvas.move('tracker', -self.plot_tracker_radius, -self.plot_tracker_radius)
+     
 
     def value(self, name, unit):
         '''Helper to retrieve values in a specific base
@@ -359,10 +378,6 @@ class Application(Frame):
         self.Vcut_time.set("0")
         self.Gcde_time.set("0")
 
-# FIXME add to params since we need these for checking
-        #self.min_vector_speed = 1.1 #in/min
-        #self.min_raster_speed = 12  #in/min
-        
         ##########################################################################
         ###                     END INITILIZING VARIABLES                      ###
         ##########################################################################
@@ -2618,7 +2633,8 @@ class Application(Frame):
                 if self.rotary.get() and float(self.rapid_feed.get()):
                     self.slow_jog(int(dxmils),int(dymils))
                 else:
-                    self.k40.rapid_move(int(dxmils),int(dymils))
+                    #self.k40.rapid_move(int(dxmils),int(dymils))
+                    self.k40.q.put(Xmsg(9, ("rapid_move", int(dxmils), int(dymils))))
 
 
                 return True
@@ -2651,6 +2667,7 @@ class Application(Frame):
         if message!=None:
             self.statusMessage.set(message)
             self.statusbar.configure( bg = bgcolor )
+        self.move_tracker()
         self.master.update()
         return True
 
@@ -3787,6 +3804,27 @@ class Application(Frame):
 
         self.k40.debug = DEBUG
 
+#        for i in range(3):
+#            #item = {'command':'hello', args:[i,2,3,4]}
+#            #item = Xmsg(priority=3, item={'command':'hello', args:[i,2,3,4]})
+#            item = Xmsg(3, f'command {i} dkfjkjfk dkjfjfkdjflklskdf')
+#            item = Xmsg(3, ('some_func',3,4))
+#            self.k40.q.put(item)
+#        for i in range(2):
+#            item = Xmsg(priority=2, item=i+10)
+#            item = Xmsg(4, ('some_func',  3,4, 6, 7, 8))
+#            self.k40.q.put(item)
+#
+#        self.k40.q.put(Xmsg(0, ("junk", 'hello', 'bye', 3.14)))
+#        self.k40.q.put(Xmsg(2, ("abort", 'hello', 'timeout:4.5', 'name=foo')))
+#        self.k40.q.put(Xmsg(2, ("abort", 'hello', '{timeout:4.5, name:foo}')))
+#        self.k40.q.put(Xmsg(2, ("get_status",)))
+
+#        self.k40.junk()
+#        self.k40.junk('one', 'two', time=6, timeout=89)
+
+#        self.k40.q.put(Xmsg(9, ("rapid_move", 1000, 1000)))
+
         try:
             self.k40.initialize_device()
             self.k40.say_hello()
@@ -3810,6 +3848,44 @@ class Application(Frame):
             self.statusbar.configure( bg = 'red' )
             self.k40=None
             debug_message(traceback.format_exc())
+
+        self.k40.q.put(Xmsg(2, ("get_status",)))
+        #self.k40.q.put(Xmsg(9, ("rapid_move", 1000, 1000)))
+        #self.k40.q.put(Xmsg(9, ("rapid_move", -1000, -1000)))
+ 
+#        # victory lap
+#        self.k40.blast(['/cmd?cmd=M17+S1'])
+#        n = 50
+#        r = 20
+#        sl = 0.03
+#        self.Rapid_Move(r, -r)
+#        self.update_gui(f' circle {r} {-r}')
+#        sleep(sl)
+#        self.Rapid_Move(r, 0)
+#        self.update_gui(f' circle {r} {0}')
+#        sleep(sl)
+#        lastx, lasty = r, 0
+#        for i in range(n+1):
+#            a = i * float(2) * math.pi / float(n)
+#            x = r * cos(a)
+#            y = r * sin(a)
+#
+#            dx = x - lastx
+#            dy = y - lasty
+#
+#            lastx, lasty = x, y
+#
+#            self.Rapid_Move(dx, dy)
+#            self.update_gui(f' circle {dx} {dy}')
+#            sleep(sl)
+#
+#        self.Rapid_Move(-r, 0)
+#        self.update_gui(f' circle {-r} {0}')
+#        sleep(sl)
+#        self.Rapid_Move(-r, r)
+#        self.update_gui(f' circle {-r} {r}')
+#        sleep(sl)
+
 
     def Unfreeze_Laser(self,event=None):
         if self.GUI_Disabled:
@@ -4531,6 +4607,11 @@ class Application(Frame):
                             x_lft, y_bot, x_rgt, y_top, fill="gray80", outline="gray80", width = 0) )
 
 
+        self.plot_x_lft = x_lft
+        self.plot_y_top = y_top
+        self.plot_x_max = maxx / self.PlotScale
+        self.plot_tracker_radius = 4
+
         ######################################
         ###       Plot Raster Image        ###
         ######################################
@@ -4721,6 +4802,7 @@ class Application(Frame):
             head_offset=False
         
         self.Plot_circle(self.laserX+xoff,self.laserY+yoff,x_lft,y_top,self.PlotScale,dot_col,radius=5,cross_hair=head_offset)
+        self.Plot_tracker(self.laserX+xoff,self.laserY+yoff,x_lft,y_top,self.PlotScale,'orange',radius=self.plot_tracker_radius,cross_hair=head_offset)
         
     def Plot_Raster(self, XX, YY, Xleft, Ytop, PlotScale, im):
         if (self.HomeUR.get()):
@@ -4758,6 +4840,37 @@ class Application(Frame):
             ecoords_out.append([plot_coords[i][0]/1000.0,plot_coords[i][1]/1000.0,loop_num])
         return ecoords_out
     
+
+    def Plot_XY(self, x_inch, y_inch):
+        PlotScale = self.PlotScale
+        x_lft = self.plot_x_lft
+        y_top = self.plot_y_top
+        x_max = self.plot_x_max
+
+        if (self.HomeUR.get()):
+            xplt = x_lft + x_max - x_inch/PlotScale
+        else:
+            xplt = x_lft + x_inch / PlotScale
+
+        yplt = y_top - y_inch / PlotScale
+        return xplt, yplt
+
+    def Plot_tracker(self, XX, YY, Xleft, Ytop, PlotScale, col, radius=0, cross_hair=False):
+        circle_tags = ('tracker')
+        if (self.HomeUR.get()):
+            maxx = self.value('LaserXsize', 'in')
+            xplt = Xleft + maxx/PlotScale - XX/PlotScale
+        else:
+            xplt = Xleft + XX/PlotScale
+        yplt = Ytop  - YY/PlotScale
+        self.segID.append(
+             self.PreviewCanvas.create_oval(
+                  xplt-radius,
+                  yplt-radius,
+                  xplt+radius,
+                  yplt+radius,
+                  fill=col,  outline=col, width = 0, stipple='gray50',tags=circle_tags ))
+
         
     def Plot_circle(self, XX, YY, Xleft, Ytop, PlotScale, col, radius=0, cross_hair=False):
         circle_tags = ('LaserTag','LaserDot')

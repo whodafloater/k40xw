@@ -60,9 +60,11 @@ class xtool_CLASS:
         self.safety_power_scale = 1.0
 
         # these are for pause and re-start
-        self.paused = False;
+        self.paused = False
         self.sendi = 0;
         self.sendstates=[]
+
+        self.debug = False
 
 
     def initialize_device(self, Location=None, verbose=False):
@@ -176,6 +178,26 @@ class xtool_CLASS:
         return False
 
     def upload_cut_file(self, data, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False):
+        self.upload_file(data,
+             update_gui=update_gui,
+             stop_calc=stopcalc,
+             passes=passes,
+             preprocess_crc=preprocess_crc,
+             wait_for_laser=wait_for_laser,
+             filetype = 'cut'
+            )
+
+    def upload_frame_file(self, data, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False):
+        self.upload_file(data,
+             update_gui=update_gui,
+             stop_calc=stop_calc,
+             passes=passes,
+             preprocess_crc=preprocess_crc,
+             wait_for_laser=wait_for_laser,
+             filetype = 'frame'
+            )
+
+    def upload_file(self, data, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False, filetype='cut'):
         if update_gui == None:
             update_gui = self.none_function
 
@@ -187,20 +209,57 @@ class xtool_CLASS:
         for line in gcode:
            gc = gc + line + '\n'
 
-        print(gc)
+        if self.debug: print(gc)
+        self.upload_gc_file(gc,
+             update_gui=update_gui,
+             stop_calc=stop_calc,
+             passes=passes,
+             preprocess_crc=preprocess_crc,
+             wait_for_laser=wait_for_laser,
+             filetype=filetype
+            )
+
+
+    def upload_gc_file(self, gc, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False, filetype='cut'):
+        if update_gui == None:
+            update_gui = self.none_function
+        if stop_calc == None:
+            stop_calc=[]
+            stop_calc.append(0)
+
+        xtool_filetype = ''
+        if filetype == 'cut':
+           xtool_filetype = '1'
+        elif filetype == 'frame':
+           xtool_filetype = '0'
+        else:
+           raise Exception(f'Do not know about file type "{filetype}"')
 
         msg = f'Uploading Data to X-Tool'
         update_gui(msg)
+
+        if self.debug: print(f'upload_gc_file:\n{gc}')
  
         files = {'file': ('tmp.gcode', gc)}
-        url = '/cnc/data?filetype=1'
+        url = '/cnc/data?filetype=' + xtool_filetype
         full_url = f'http://{self.IP}:{self.PORT}{url}'
+        if self.debug: print(f'upload_gc_file: {full_url}')
+        if self.debug: print(f'upload_gc_file: {files}')
+
         result = requests.post(full_url, files=files)
+        if self.debug: print(f'upload_gc_file: {result}')
+
+        if self.debug: print(self.get_working_state())
+        if self.debug: print(self.get_status())
 
         if result.status_code == 200:
             print("INFO: upload success!")
-            print("INFO: Green led should be on. Press XTool button to cut.")
-            msg = f'Uploading Sucsessful. Use the X-Tool button to start the burn.'
+            if filetype == 'cut':
+                print("INFO: Green led should be on. Press XTool button to cut.")
+                msg = f'Uploading Sucsessful. Use the X-Tool button to start the burn.'
+            if filetype == 'frame':
+                print("INFO: Blue led should be blinking. Press XTool button to frame.")
+                msg = f'Uploading Sucsessful. Use the X-Tool button to start the burn.'
             update_gui(msg)
         else:
             msg = f'Upload Failed: {result}'
@@ -251,7 +310,7 @@ class xtool_CLASS:
 
            self.sendi = i;
 
-           print(f'{i} {gcode[i]}')
+           print(f'{i:5d} of {len(gcode)}    {gcode[i]}')
 
            elapsed = time.time() - self.mark
            self.get_working_state()
@@ -334,16 +393,26 @@ class xtool_CLASS:
             print(f'WARN unhandled working value in get_state(): {d}')
 
 
-    def rapid_move(self,dxmils,dymils):
-        print(f'rapid move: dx:{dxmils} mils  dy:{dymils} mils')
-        xloc = dxmils * 0.0254
-        yloc = -dymils * 0.0254
+    def rapid_move(self, dxmils, dymils):
+        if self.debug: print(f'xtool_lib: rapid_move: dx:{dxmils} mils  dy:{dymils} mils')
+        xloc = dxmils * 0.0254     # mm
+        yloc = -dymils * 0.0254    # mm
+        feed = 3000                # mm/min
+        # This sequence finishes with gcode abort M108
+        # Leave this out and XTool will progress to a timeout, blink red, then green
+        # During a long rapid led will transition to blinking blue
+        # after the M108 it will go solid green
         s = ['/cmd?cmd=M17+S1',
-             '/cmd?cmd=G92+X0+Y0',
+             '/cmd?cmd=G92X0Y0',
              '/cmd?cmd=G90',
-             '/cmd?cmd=G1+X' + str(xloc) + '+Y' + str(yloc) + '+F3000+S0',
+             '/cmd?cmd=G1X' + str(xloc) + 'Y' + str(yloc) + 'F' + str(feed) + 'S0',
+             '/cmd?cmd=M108'
             ]
         self.blast(s)
+
+        # time estimate, sec = length / (3000 mm/min) * 60 sec/min
+        time_est = math.sqrt(xloc * xloc + yloc * yloc) / feed * 60
+        if self.debug: print(f'rapid time = {time_est:.2f} sec')
         return
 
     def ecoord_to_gcode(self, data):
@@ -363,6 +432,7 @@ class xtool_CLASS:
          dt = 0
          gcode.append(f'M17 S1')
          gcode.append(f'M205 X426 Y403')  # file uploads do not work with out this
+         gcode.append(f'M101')
          gcode.append(f'G90')
          gcode.append(f'G92 X0 Y0')
          gcode.append(f'G0 F{rapid}')
@@ -456,6 +526,55 @@ class xtool_CLASS:
          print(f'Total Time Est: {tot:0.1f} sec')
 
          return gcode, segtime
+
+    def upload_safe_file(self, update_gui=None, stop_calc=None, passes=1, preprocess_crc=True, wait_for_laser=False):
+        xsize = 10   # mm
+        ysize = 10   # mm
+        feed = 1000  # mm/min
+        power = 0    # 1000 = 100%
+        cross = 0
+
+        x1 = 0
+        x2 = x1 + xsize
+        y1 = 0
+        y2 = y1 + ysize
+
+        gc =  "M17 S1\n"
+        gc += f"M106 S{cross}\n"
+        gc += "M205 X426 Y403\n"
+        gc += "M101\n"
+
+        # laser offset from led cross
+        gc += "G92 X17 Y1\n"
+        #gc += "G92 X0 Y0\n"
+
+        gc += "G90\n"
+        gc += f"G1 F{feed}\n"
+        gc += "G0 F3000\n"
+        gc += f"G1 S{power}\n"
+
+        gc += f"G0 X{x1} Y{y1}\n"
+        gc += f"G1 X{x2} Y{y1}\n"
+        gc += f"G1 X{x2} Y{y2}\n"
+        gc += f"G1 X{x1} Y{y2}\n"
+        gc += f"G1 X{x1} Y{y1}\n"
+
+        #gc += "G0 X0 Y0\n"
+        # put led cross on 0,0
+        gc += "G0 X17 Y1\n"
+
+        gc += "M18\n"
+
+        self.upload_gc_file(gc, update_gui, stop_calc, passes, preprocess_crc, wait_for_laser, filetype='cut')
+
+        self.upload_gc_file(gc, update_gui, stop_calc, passes, preprocess_crc, wait_for_laser, filetype='frame')
+
+        self.blast({'/cmd?cmd=M108',});
+
+        for i in range(1):
+            time.sleep(0.30)
+            print(f'{self.get_status()} {self.get_working_state()}')
+
 
 
 if __name__ == "__main__":

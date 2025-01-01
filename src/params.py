@@ -116,6 +116,7 @@ class Params:
 
         d['trace_gap']         = [StringVar,   0, 0,     1, "mm",      ":s", 0]
         d['trace_speed']       = [StringVar,   50, 0,   100, "mm/sec", ":s", 0]
+        d['trace_power']       = [StringVar,   5, 0,     5, "pct", ":s", "d"]
 
 
         d['Reng_feed']         = [StringVar,   100, 0,  600, "mm/sec", ":s", 0]
@@ -282,7 +283,7 @@ class Params:
                 print(f'WARN: ignoring old name in settings file: {filename} name: {name:35s} | {value}')
                 continue
 
-            print(f'read {filename}   name: {name:35s} | {value}')
+            if self.debug: print(f'read {filename}   name: {name:35s} | {value}')
             context.__dict__[name].set(value)
 
         # K40 does more init based on the new value

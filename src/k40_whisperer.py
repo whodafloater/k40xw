@@ -336,6 +336,7 @@ class Application(Frame):
         self.VengData  = ECoord()
         self.VcutData  = ECoord()
         self.GcodeData = ECoord()
+        self.TraceData = ECoord()
         self.SCALE = 1
         self.Design_bounds = (0,0,0,0)
         self.UI_image = None
@@ -379,6 +380,7 @@ class Application(Frame):
         self.PreviewCanvas.pack(side=LEFT, fill=BOTH, expand=1)
         self.PreviewCanvas_frame.place(x=230, y=10)
 
+        # mouse action when its over the laser spot
         self.PreviewCanvas.tag_bind('LaserTag',"<1>"              , self.mousePanStart)
         self.PreviewCanvas.tag_bind('LaserTag',"<B1-Motion>"      , self.mousePan)
         self.PreviewCanvas.tag_bind('LaserTag',"<ButtonRelease-1>", self.mousePanStop)
@@ -441,6 +443,8 @@ class Application(Frame):
         self.upload_style.set('linebyline')
         self.style_1.configure(variable=self.upload_style)
         self.style_2.configure(variable=self.upload_style)
+        self.upload_filetype = StringVar() # set by trace GUI or main GUI. 'cut' or 'frame' 
+        self.upload_filetype.set('safe')
 
         # Buttons
         self.Reng_Button  = Button(self.master,text="Raster Engrave", command=self.Raster_Eng)
@@ -843,13 +847,22 @@ class Application(Frame):
         self.Release_USB
         root.destroy()
 
+    def debug_verbose(self, event):
+        #if DEBUG: print(f'--- mousepanstart {inspect.currentframe():-30s}(): {event}')
+        if DEBUG:
+            curframe = inspect.currentframe()
+            calframe = inspect.getouterframes(curframe, 1)
+            print(f'--- {calframe[1][3]:30s} {event}')
+
     def mousePanStart(self,event):
+        if DEBUG: self.debug_verbose(event)
         self.panx = event.x
         self.pany = event.y
         self.move_start_x = event.x
         self.move_start_y = event.y
         
     def mousePan(self,event):
+        if DEBUG: self.debug_verbose(event)
         all = self.PreviewCanvas.find_all()
         dx = event.x-self.panx
         dy = event.y-self.pany
@@ -861,6 +874,7 @@ class Application(Frame):
         self.pany = event.y
         
     def mousePanStop(self,event):
+        if DEBUG: self.debug_verbose(event)
         Xold = round(self.laserX,3)
         Yold = round(self.laserY,3)
 
@@ -1120,7 +1134,6 @@ class Application(Frame):
     # Left Column #
     #############################
     def Entry_Reng_feed_Check(self):
-        print(f'min raster speed {float(self.min_raster_speed.get())}')
         try:
             value = self.value('Reng_feed', self.velocity_units())
             low_limit = self.value('min_raster_speed', self.velocity_units())
@@ -1543,8 +1556,8 @@ class Application(Frame):
 
     def Entry_Trace_Speed_Check(self):
         try:
-            value = self.value('trace_feed', self.velocity_units())
-            low_limit = self.value('min_vector_feed', self.velocity_units())
+            value = self.value('trace_speed', self.velocity_units())
+            low_limit = self.value('min_vector_speed', self.velocity_units())
 
             if  value < low_limit:
                 self.statusMessage.set(" Feed Rate should be greater than or equal to %f " %(low_limit))
@@ -2671,6 +2684,7 @@ class Application(Frame):
         self.Prepare_for_laser_run("Vector Cut: Processing Vector Data.")
         print(f'Vector_Cut: {self.VcutData.ecoords}')
         if self.VcutData.ecoords!=[]:
+            self.upload_filetype.set('cut')
             self.send_data("Vector_Cut")
         else:
             self.statusbar.configure( bg = 'yellow' )
@@ -2680,6 +2694,7 @@ class Application(Frame):
     def Vector_Eng(self):
         self.Prepare_for_laser_run("Vector Engrave: Processing Vector Data.")
         if self.VengData.ecoords!=[]:
+            self.upload_filetype.set('cut')
             self.send_data("Vector_Eng")
         else:
             self.statusbar.configure( bg = 'yellow' )
@@ -2690,11 +2705,15 @@ class Application(Frame):
         self.Prepare_for_laser_run("Boundary Trace: Processing Data.")
         self.trace_coords = self.make_trace_path()
 
+        self.upload_filetype.set('frame')
+
         if self.trace_coords!=[]:
             self.send_data("Trace_Eng")
         else:
             self.statusbar.configure( bg = 'yellow' )
             self.statusMessage.set("No trace data to follow")
+
+        self.upload_filetype.set('safe')
         self.Finish_Job()
 
     def Raster_Eng(self):
@@ -2702,6 +2721,7 @@ class Application(Frame):
         try:
             self.make_raster_coords()
             if self.RengData.ecoords!=[]:
+                self.upload_filetype.set('cut')
                 self.send_data("Raster_Eng")
             else:
                 self.statusbar.configure( bg = 'yellow' )
@@ -2722,6 +2742,7 @@ class Application(Frame):
             self.statusbar.configure( bg = 'red' )
             message_box(msg1, msg2)
             debug_message(traceback.format_exc())
+
         self.Finish_Job()
 
     def Raster_Vector_Eng(self):
@@ -2729,6 +2750,7 @@ class Application(Frame):
         try:
             self.make_raster_coords()
             if self.RengData.ecoords!=[] or self.VengData.ecoords!=[]:
+                self.upload_filetype.set('cut')
                 self.send_data("Raster_Eng+Vector_Eng")
             else:
                 self.statusbar.configure( bg = 'yellow' )
@@ -2745,6 +2767,7 @@ class Application(Frame):
     def Vector_Eng_Cut(self):
         self.Prepare_for_laser_run("Vector Cut: Processing Vector Data.")
         if self.VcutData.ecoords!=[] or self.VengData.ecoords!=[]:
+            self.upload_filetype.set('cut')
             self.send_data("Vector_Eng+Vector_Cut")
         else:
             self.statusbar.configure( bg = 'yellow' )
@@ -2756,6 +2779,7 @@ class Application(Frame):
         try:
             self.make_raster_coords()
             if self.RengData.ecoords!=[] or self.VengData.ecoords!=[] or self.VcutData.ecoords!=[]:
+                self.upload_filetype.set('cut')
                 self.send_data("Raster_Eng+Vector_Eng+Vector_Cut")
             else:
                 self.statusbar.configure( bg = 'yellow' )
@@ -2772,6 +2796,7 @@ class Application(Frame):
     def Gcode_Cut(self):
         self.Prepare_for_laser_run("G Code Cutting.")
         if self.GcodeData.ecoords!=[]:
+            self.upload_filetype.set('cut')
             self.send_data("Gcode_Cut")
         else:
             self.statusbar.configure( bg = 'yellow' )
@@ -2780,7 +2805,13 @@ class Application(Frame):
 
     def Prepare_for_laser_run(self,msg):
         self.stop[0]=False
-        self.move_head_window_temporary([0,0])
+        self.move_head_window_temporary([0,0])   # this causes a machine rapid and it messes up file uplaods to Xtool
+                                                  # the machine does blinkning orange then green
+                                                  # noticed when bounding trace is generated and preview gcode
+                                                  # is displayed. should be no machine acivity up to this point
+                                                  #
+                                                  # but need to position head in UL prior to start ....
+                                                  
         self.set_gui("disabled")
         self.statusbar.configure( bg = 'light green' )
         self.statusMessage.set(msg)
@@ -3333,13 +3364,18 @@ class Application(Frame):
         if (operation_type.find("Trace_Eng") > -1) and  (self.trace_coords!=[]):
             feed = self.value('trace_speed', 'mm/sec')
             power = 0
-            if self.trace_w_laser.get(): power = 5
+            if self.trace_w_laser.get(): power = self.value('trace_speed', 'pct')
 
-            self.trace_coords.add_feed(feed, feed, power)
+            #print(f'Trace_eng trace_coords = {self.trace_coords}')
 
-            cutcoords[3] = self.trace_coords.ecoords
+            self.TraceData.set_ecoords(self.trace_coords,data_sorted=True)
+
+            self.TraceData.add_feed(feed, feed, power)
+
+            cutcoords[3] = self.TraceData.ecoords
             passes[3] = 1
 
+            #print(f'Trace_eng cutcoords = {cutcoords[3]}')
 
         if (operation_type.find("Gcode_Cut") > -1) and  (self.GcodeData.ecoords!=[]):
             cutcoords[3] = self.GcodeData.ecoords
@@ -3607,9 +3643,26 @@ class Application(Frame):
             time_start = time()
 
             if self.upload_style.get() == 'linebyline':
-               self.k40.send_data(data,self.update_gui,self.stop,num_passes,pre_process_CRC, wait_for_laser=self.wait.get())
+                self.k40.send_data(
+                    data,
+                    self.update_gui,
+                    self.stop,
+                    num_passes,
+                    pre_process_CRC,
+                    wait_for_laser=self.wait.get()
+                   )
+
             elif self.upload_style.get() == 'uploadfile':
-               self.k40.upload_cut_file(data,self.update_gui,self.stop,num_passes,pre_process_CRC, wait_for_laser=self.wait.get())
+                self.k40.upload_file(
+                    data,
+                    self.update_gui,
+                    self.stop,
+                    num_passes,
+                    pre_process_CRC,
+                    wait_for_laser=self.wait.get(),
+                    filetype = self.upload_filetype.get()
+                   )
+
             else:
                raise Exception(f'Upload style unknown: {self.upload_style.get()}')
 
@@ -3621,6 +3674,8 @@ class Application(Frame):
             self.statusMessage.set("Laser is not initialized.")
             self.statusbar.configure( bg = 'yellow' )
             return
+
+        self.upload_filetype.set('safe')
         self.menu_View_Refresh()
         
     ##########################################################################
@@ -3730,9 +3785,12 @@ class Application(Frame):
         self.k40=xtool_CLASS()
         self.k40.IP = self.ipaddr
 
+        self.k40.debug = DEBUG
+
         try:
             self.k40.initialize_device()
             self.k40.say_hello()
+            self.k40.upload_safe_file()
             if self.init_home.get():
                 self.Home()
             else:
@@ -3940,7 +3998,7 @@ class Application(Frame):
         y = int(self.master.winfo_y())
         w = int(self.master.winfo_width())
         h = int(self.master.winfo_height())
-        print(f'Master_Configure: {x,y,w,h}')
+        if DEBUG: print(f'Master_Configure: {x,y,w,h}')
         if (x, y, w, h) == (0, 0, 1, 1):
             return
 
@@ -5294,12 +5352,21 @@ class Application(Frame):
     def TRACE_Settings_Window(self, dummy=None):
         if self.GUI_Disabled:
             return
-        trace_window = Toplevel(width=350, height=180)
+        trace_window = Toplevel()
         self.trace_window=trace_window
         trace_window.grab_set() # Use grab_set to prevent user input in the main window during calculations
         trace_window.resizable(0,0)
         trace_window.title('Trace Boundary')
         trace_window.iconname("Trace Boundary")
+
+        # place pop up in lower left of the master window
+        mx = int(self.master.winfo_rootx())
+        my = int(self.master.winfo_rooty())
+        mh = int(self.master.winfo_height())
+        mw = int(self.master.winfo_width())
+        tw = 350
+        th = 180
+        trace_window.geometry('%dx%d+%d+%d' % (tw, th, mx+30, my+mh-th-60))
 
         def Close_Click():
             win_id=self.grab_current()

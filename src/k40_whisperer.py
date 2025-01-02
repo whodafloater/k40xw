@@ -130,6 +130,12 @@ class Application(Frame):
     def __init__(self, master, opts=None, args=None):
 
         if DEBUG: print(f'Application init, opts = {opts}, args = {args}')
+        # minimum state need to convert phyical machine coords to pixel coords.
+        # Used for animated tracker
+        self.plot_x_lft = 0
+        self.plot_y_top = 0
+        self.plot_x_max = 1 
+        self.plot_tracker_radius = 4
 
         # initialize parameters
         self.p = params.Params()

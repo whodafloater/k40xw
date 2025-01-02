@@ -54,6 +54,7 @@ import traceback
 import struct
 
 
+
 VERSION = sys.version_info[0]
 LOAD_MSG = ""
 
@@ -182,12 +183,11 @@ class Application(Frame):
 
     def move_tracker(self):
         if self.k40 != None:
-            x = self.k40.drlocx 
-            y = self.k40.drlocy 
+            x, y = self.k40.head_position('in')
         else:
             x = 0
             y = 0
-        self.PreviewCanvas.moveto('tracker', *self.Plot_XY(x/25.4, -y/25.4))
+        self.PreviewCanvas.moveto('tracker', *self.Plot_XY(x, y))
         self.PreviewCanvas.move('tracker', -self.plot_tracker_radius, -self.plot_tracker_radius)
      
 
@@ -2589,7 +2589,7 @@ class Application(Frame):
         JOG_STEP = self.value('jog_step', self.units.get())
         self.Rapid_Move( 0,-JOG_STEP )
 
-    def Rapid_Move(self,dx,dy):
+    def Rapid_Move(self,dx,dy, bound_check=True):
         if self.GUI_Disabled:
             return
         if self.units.get()=="in":
@@ -2602,7 +2602,11 @@ class Application(Frame):
         if (self.HomeUR.get()):
             dx_inches = -dx_inches
 
-        Xnew,Ynew = self.XY_in_bounds(dx_inches,dy_inches)
+        if bound_check:
+           Xnew,Ynew = self.XY_in_bounds(dx_inches,dy_inches)
+        else:
+           Xnew,Ynew = self.XY_in_bounds(dx_inches,dy_inches, no_size=True)
+
         dxmils = (Xnew - self.laserX)*1000.0
         dymils = (Ynew - self.laserY)*1000.0
 
@@ -2663,6 +2667,9 @@ class Application(Frame):
         self.send_egv_data(Rapid_data, 1, None)
         self.stop[0]=True
 
+    # For single thread mode this is called long running callbacks
+    # like machine chunking out gcode.
+    # In that case the tick call back does not run.
     def update_gui(self, message=None, bgcolor='white'):
         if message!=None:
             self.statusMessage.set(message)
@@ -3276,6 +3283,7 @@ class Application(Frame):
             text.insert(END,line+"\n")
         sb.config(command = text.yview)
         sb.pack(side =RIGHT, fill = Y)
+        text.pack(side=LEFT,fill=BOTH,expand=1)
         #End Text Box
 
         bf = Frame(w)
@@ -3283,7 +3291,6 @@ class Application(Frame):
         Button(bf, text=" Continue Send ", command = Close_Click).pack(side = RIGHT)
         Button(bf, text=" Cancel ", command = Cancel_Click).pack(side = RIGHT)
 
-        text.pack(side=LEFT,fill=BOTH,expand=1)
         bf.pack(side=BOTTOM)
         tf.pack(side=LEFT,fill=BOTH,expand=1)
 
@@ -3730,8 +3737,21 @@ class Application(Frame):
     def Home(self, event=None):
         if self.GUI_Disabled:
             return
+
+        manual = False
         if self.k40 != None:
-            self.k40.home_position()
+            try:
+                self.k40.home_position()
+            #except:
+            #   pass
+            except Exception as e:
+                if str(e.args[0]) == 'ManualHomeRequest':
+                    print(f'home exception: {e}')
+                    manual = True
+
+            if manual:
+                self.manual_home_popup(['hello 1'])
+
         self.laserX  = 0.0
         self.laserY  = 0.0
         self.pos_offset = [0.0,0.0]
@@ -3801,41 +3821,21 @@ class Application(Frame):
         #self.k40=MachineBase()
         self.k40=xtool_CLASS()
         self.k40.IP = self.ipaddr
-
         self.k40.debug = DEBUG
-
-#        for i in range(3):
-#            #item = {'command':'hello', args:[i,2,3,4]}
-#            #item = Xmsg(priority=3, item={'command':'hello', args:[i,2,3,4]})
-#            item = Xmsg(3, f'command {i} dkfjkjfk dkjfjfkdjflklskdf')
-#            item = Xmsg(3, ('some_func',3,4))
-#            self.k40.q.put(item)
-#        for i in range(2):
-#            item = Xmsg(priority=2, item=i+10)
-#            item = Xmsg(4, ('some_func',  3,4, 6, 7, 8))
-#            self.k40.q.put(item)
-#
-#        self.k40.q.put(Xmsg(0, ("junk", 'hello', 'bye', 3.14)))
-#        self.k40.q.put(Xmsg(2, ("abort", 'hello', 'timeout:4.5', 'name=foo')))
-#        self.k40.q.put(Xmsg(2, ("abort", 'hello', '{timeout:4.5, name:foo}')))
-#        self.k40.q.put(Xmsg(2, ("get_status",)))
-
-#        self.k40.junk()
-#        self.k40.junk('one', 'two', time=6, timeout=89)
-
-#        self.k40.q.put(Xmsg(9, ("rapid_move", 1000, 1000)))
 
         try:
             self.k40.initialize_device()
-            self.k40.say_hello()
-            self.k40.upload_safe_file()
-            if self.init_home.get():
-                self.Home()
-            else:
-                self.Unlock()
+            msg = self.k40.say_hello()
 
         except Exception as e:
             error_text = "%s" %(e)
+
+            if error_text == "Machine is Offline":
+                self.k40=None
+                self.statusMessage.set(f'INFO: {e}')
+                self.statusbar.configure( bg = 'pink' )
+                return
+
             if "BACKEND" in error_text.upper():
                 error_text = error_text + " (libUSB driver not installed)"
             self.statusMessage.set("USB Error: %s" %(error_text))
@@ -3849,42 +3849,21 @@ class Application(Frame):
             self.k40=None
             debug_message(traceback.format_exc())
 
-        self.k40.q.put(Xmsg(2, ("get_status",)))
-        #self.k40.q.put(Xmsg(9, ("rapid_move", 1000, 1000)))
-        #self.k40.q.put(Xmsg(9, ("rapid_move", -1000, -1000)))
- 
-#        # victory lap
-#        self.k40.blast(['/cmd?cmd=M17+S1'])
-#        n = 50
-#        r = 20
-#        sl = 0.03
-#        self.Rapid_Move(r, -r)
-#        self.update_gui(f' circle {r} {-r}')
-#        sleep(sl)
-#        self.Rapid_Move(r, 0)
-#        self.update_gui(f' circle {r} {0}')
-#        sleep(sl)
-#        lastx, lasty = r, 0
-#        for i in range(n+1):
-#            a = i * float(2) * math.pi / float(n)
-#            x = r * cos(a)
-#            y = r * sin(a)
-#
-#            dx = x - lastx
-#            dy = y - lasty
-#
-#            lastx, lasty = x, y
-#
-#            self.Rapid_Move(dx, dy)
-#            self.update_gui(f' circle {dx} {dy}')
-#            sleep(sl)
-#
-#        self.Rapid_Move(-r, 0)
-#        self.update_gui(f' circle {-r} {0}')
-#        sleep(sl)
-#        self.Rapid_Move(-r, r)
-#        self.update_gui(f' circle {-r} {r}')
-#        sleep(sl)
+        self.statusMessage.set(msg)
+        self.statusbar.configure( bg = 'light green' )
+
+        self.manual_home_popup(['hello 1'])
+        return
+
+        self.k40.upload_safe_file()
+
+        try:
+            if self.init_home.get():
+                self.Home()
+            else:
+                self.Unlock()
+        except:
+            pass
 
 
     def Unfreeze_Laser(self,event=None):
@@ -4607,6 +4586,8 @@ class Application(Frame):
                             x_lft, y_bot, x_rgt, y_top, fill="gray80", outline="gray80", width = 0) )
 
 
+        # minimum state need to convert phyical machine coords to pixel coords.
+        # Used for animated tracker
         self.plot_x_lft = x_lft
         self.plot_y_top = y_top
         self.plot_x_max = maxx / self.PlotScale
@@ -5610,6 +5591,119 @@ class Application(Frame):
         self.EGV_Send = Button(egv_send,text="Send EGV Data",command=Close_and_Send_Click)
         self.EGV_Send.place(x=Xbut, y=Ybut, width=130, height=30, anchor="w")
         ################################################################################
+
+
+    def name_value_unit_widget(self, name, value, unit):
+        pass
+
+    def head_control_frame(self):
+        pass
+
+
+    def manual_home_popup(self, data):
+        w = Toplevel(width=400, height=400)
+        #w = Toplevel()
+        w.grab_set()
+        #w.resizable(0,0)
+        w.title('Manual Home')
+        return_value =  StringVar()
+        return_value.set("none")
+
+        # place pop up in lower left of the master window
+        mx = int(self.master.winfo_rootx())
+        my = int(self.master.winfo_rooty())
+        mh = int(self.master.winfo_height())
+        mw = int(self.master.winfo_width())
+        tw = 350
+        th = 180
+        #w.geometry('%dx%d+%d+%d' % (tw, th, mx+30, my+mh-th-60))
+
+        def Close_Click():
+            return_value.set("apply")
+            w.destroy()
+
+        def Cancel_Click():
+            return_value.set("cancel")
+            w.destroy()
+
+        JOG_STEP = self.value('jog_step', self.units.get())
+
+        def Move_Right(dummy=None):
+            self.Rapid_Move(JOG_STEP, 0, bound_check=False)
+
+        def Move_Left(dummy=None):
+            self.Rapid_Move(-JOG_STEP, 0, bound_check = False)
+
+        def Move_Up(dummy=None):
+            self.Rapid_Move(0, JOG_STEP, bound_check = False)
+
+        def Move_Down(dummy=None):
+            self.Rapid_Move(0, -JOG_STEP, bound_check = False)
+
+        def Move_g(*args):
+            print(f'Move_g  {args}')
+            pass
+
+        #Text Box
+        data = [
+          'The machine does not',
+          'have an automatic Home',
+          'function avalable',
+          '',
+          'Get up and do it yourself',
+          '',
+          'or use the buttons',
+          '',
+          'or do nothing',
+         ]
+
+        for line in data:
+            print(line)
+
+        tf = Frame(w)
+        sb = Scrollbar(tf, orient=VERTICAL)
+        text = Text(tf, width="40", height="10", yscrollcommand = sb.set, bg='white')
+        for line in data:
+            text.insert(END,line+"\n")
+        sb.config(command = text.yview)
+        sb.pack(side =RIGHT, fill = Y)
+        #End Text Box
+
+        
+
+        bf = Frame(w)
+        #Button(bf, text=" Save to File ", command = Save_Click).pack(side = RIGHT)
+        Button(bf, text=" Apply and Continue ", command = Close_Click).pack(side = RIGHT)
+        Button(bf, text=" Cancel ", command = Cancel_Click).pack(side = RIGHT)
+
+        pad = 2
+
+        cf = Frame(w, padx=6, pady=6)
+        RB = Button(cf, image=self.right_image, command=Move_Right).grid(row=2, column=3, padx=pad, pady=pad)
+        LB = Button(cf, image=self.left_image,  command=Move_Left ).grid(row=2, column=1, padx=pad, pady=pad)
+        UP = Button(cf, image=self.up_image,    command=Move_Up   ).grid(row=1, column=2, padx=pad, pady=pad)
+        DN = Button(cf, image=self.down_image,  command=Move_Down ).grid(row=3, column=2, padx=pad, pady=pad)
+
+        UL = Button(cf, image=self.UL_image, command=Move_g).grid(row=1, column=1, padx=pad, pady=pad)
+        UR = Button(cf, image=self.UR_image, command=Move_g).grid(row=1, column=3, padx=pad, pady=pad)
+        LR = Button(cf, image=self.LR_image, command=Move_g).grid(row=3, column=3, padx=pad, pady=pad)
+        LL = Button(cf, image=self.LL_image, command=Move_g).grid(row=3, column=1, padx=pad, pady=pad)
+        CC = Button(cf, image=self.CC_image, command=Move_g).grid(row=2, column=2, padx=pad, pady=pad)
+
+
+        
+
+
+        text.pack(side=LEFT,fill=BOTH,expand=1)
+
+        bf.pack(side='bottom')
+        cf.pack(side='right')
+        tf.pack(side='left')
+
+
+        root.wait_window(w)
+        return return_value.get()
+
 
     def general_file_save(self, place, data,
                           fileforce = None,

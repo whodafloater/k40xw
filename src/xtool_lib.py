@@ -42,6 +42,7 @@ class Xmsg:
 
 class xtool_CLASS:
     def __init__(self):
+        self.what_i_aspire_to_be = 'xTool D1'
         self.dev        = None
         self.IP = '192.168.0.106'
         self.PORT = 8080
@@ -67,33 +68,83 @@ class xtool_CLASS:
 
         self.debug = False
 
-        self.drlocx = 0
-        self.drlocy = 0
+        # for tracking machine state
+        self.__drlocx = 0
+        self.__drlocy = 0
+        if self.flipy: self.__yflip = -1
+        else:          self.__yflip = 1
+        self.__feed = 0
+        self.__power = 0
+        self.__cross = 0
+        self.__working = '?'
+
 
         self.q = queue.PriorityQueue()
         self.lock = threading.Lock()
-
         self.start()
         self.lock.acquire()
         self.lock.release()
 
-        for param in self.__dict__:
-           print(f'xtool_lib: param: {param}')
+        #for param in self.__dict__:
+        #   print(f'xtool_lib: param: {param}')
 
     def worker(self):
+        #   Xmsg(priority, message)
+        #   message must be a tuple
+        #   self.k40.q.put(Xmsg(0, ("junk", 'hello', 'bye', 3.14)))
+        #   self.k40.q.put(Xmsg(2, ("abort", 'hello', 'timeout:4.5', 'name=foo')))
+        #   self.k40.q.put(Xmsg(2, ("abort", 'hello', '{timeout:4.5, name:foo}')))
+        #   self.k40.q.put(Xmsg(2, ("get_status",)))
+        #   self.k40.junk()
+        #   self.k40.junk('one', 'two', time=6, timeout=89)
+        #   self.k40.q.put(Xmsg(9, ("rapid_move", 1000, 1000)))
+        #   self.k40.q.put(Xmsg(2, ("get_status",)))
+        #   self.k40.q.put( Xmsg(9, ("rapid_move(1000, 1000)",) ))
+        #   self.k40.q.put( Xmsg(9, "rapid_move(1000, 1000)" ) )
+
+        exit_request = False
+
         while True:
+            if self.q.empty() and exit_request:
+               break
+
             pi = self.q.get()
             #print(f'\n\nWorking on: pri:{pi.priority}  item:{pi.item}    nargs={len(pi.item)}')
 
-            nargs = len(pi.item)
-            command = pi.item[0]
-            itemargs = pi.item[1:nargs]  
-            lastarg = pi.item[nargs-1]
+            raw = pi.item
+            if len(raw) == 0:
+               self.q.task_done()
+               continue
 
-            #print(f'    command: {command:20s} {itemargs}   lastarg={lastarg}')
+            command = ''
+            itemargs = []
+            lastarg = ''
+            if len(raw[0]) == 1:
+                # assume this is really a single string, accidently given as a tuple of chars
+                accum = ''
+                np = 0
+                for c in raw:
+                    accum = accum + c
+                    if c == '(':
+                        raise Exception(f'I am not a parser. Input was: {raw}')
+
+                command = accum
+                print(f'    command: {command:20s} {itemargs}   lastarg={lastarg}')
+            else: 
+                nargs = len(pi.item)
+                command = pi.item[0]
+                itemargs = pi.item[1:nargs]  
+                lastarg = pi.item[nargs-1]
+                print(f'    command: {command:20s} {itemargs}   lastarg={lastarg}')
 
             kwargs = dict()
             args = []
+
+            if command == 'exit':
+                exit_request = True
+
+            if command == 'kill':
+                break;
 
             for n in itemargs:
             #    print(f'  arg: {n}')
@@ -121,9 +172,11 @@ class xtool_CLASS:
             #time.sleep(1)
             #print(f'Finished {pi}')
             self.q.task_done()
+        return 
 
     def start(self):
-        threading.Thread(target=self.worker, daemon=True).start()
+        self.worker = threading.Thread(target=self.worker, daemon=True)
+        self.worker.start()
 
     def junk(self, *args, **kwargs):
         print(f'------------------ xtool_lib:  junk args:{args}   kw:{kwargs}')
@@ -131,26 +184,85 @@ class xtool_CLASS:
     def abort(self, *args, **kwargs):
         print(f'------------------ xtool_lib:  abort args:{args}  kw:{kwargs}')
 
-    def initialize_device(self, Location=None, verbose=False):
+    def initialize_device(self, Location=None, Port=8080, verbose=False):
+        self.lock.acquire()
+        """
+        Just establish we can talk to a thing
+        and the thing is what we expect
+        No machine setup in here
+
+        In the K40 driver this function inits the USB 'device'
+        """
+        # just ping the ip and see if any body is there. May not even be the Xtool
         if Location != None:
-           self.IP = Location
+            self.IP = Location
+        if Port != None:
+            self.PORT = Port
+
+        reply = ''
+        try:
+            reply = self._get_request('', timeout=1).decode('utf-8')
+        except requests.exceptions.ConnectTimeout:
+            self.online_status = False
+            self.lock.release()
+            raise Exception(f'No Response from {self.__lasturl}')
+
+        self.online_status = True
+
+        # see if device reports a name
+        d = dict()
+        try:
+            d = self.blast(['/system?action=get_dev_name'])
+        except requests.exceptions.ConnectTimeout:
+            self.online_status = False
+            self.lock.release()
+            raise Exception(f'No Response from {self.__lasturl}')
+
+        if not 'name' in d:
+            self.lock.release()
+            raise Exception(f'Aspirations not met. No name in reply from machine.')
+
+        if d['name'] != self.what_i_aspire_to_be:
+            self.lock.release()
+            raise Exception(f'Aspirations not met. Machine is not "{self.what_i_aspire_to_be}". Got: "{d["name"]}"')
+
+        print(d)
+        self.lock.release()
         return self.IP
 
     def say_hello(self):
-        r = dict()
-        r['result'] = 'fail'
+        """
+        I K40 this looks like it just inits the interface on the machine.
+        """
+        self.lock.acquire()
+        d = dict()
+        d['result'] = 'fail'
 
         try:
-            self.online_status = True
-            s = ['/system?action=get_dev_name']
-            r = self.blast(s)
-            print(f"INFO: Machine is {r}")
+            d = self.blast(['/system?action=get_dev_name'])
 
-        except:
+        except requests.exceptions.ConnectTimeout:
             self.online_status = False
-            print("INFO: Machine is offline")
+            self.lock.release()
+            raise Exception(f'No Response from {self.__lasturl}')
 
-        return r['result']
+        self.lock.release()
+        return d['name'] + " says Hello!"
+
+    def head_position(self, unit):
+        if unit == 'mm':
+           x = self.__drlocx
+           y = self.__yflip * self.__drlocy
+        elif unit == 'in':
+           x = self.__drlocx / 25.4
+           y = self.__yflip * self.__drlocy / 25.4
+        else:
+           raise Exception("must specify unit, 'mm' or 'in'")
+        return (x, y)
+
+    def head_position_units(self):
+        return 'mm'
+
 
     def get_working_state(self):
         self.blast([f'/system?action=get_working_sta'])
@@ -158,6 +270,9 @@ class xtool_CLASS:
 
     def get_status(self):
         return self.blast([f'/peripherystatus'])
+
+    def print_status(self):
+        print(self.blast([f'/peripherystatus']))
     
     def unlock_rail(self):
         print("unlock rail")
@@ -169,9 +284,10 @@ class xtool_CLASS:
         self.blast(s, expect='fail')
 
     def home_position(self):
-        self.drlocx = 0
-        self.drlocy = 0
-        print("home")
+        self.__drlocx = 0
+        self.__drlocy = 0
+        print("XTool home requested")
+        raise Exception("ManualHomeRequest")
 
     def reset_usb(self):
         print("reset usb")
@@ -209,19 +325,21 @@ class xtool_CLASS:
     def unfreeze(self):
         print("unfreeze")
         
-    def blast(self, s, expect='ok'):
+    def blast(self, s, expect='ok', timeout=3):
         d = dict()
         d['result'] = 'failed' 
 
         if self.online_status == False:
-            #print(f'INFO: Machine is offline. not sending: {s}')
-            return
+            d['result'] = 'offline' 
+            print(f'INFO: Machine is offline. not sending: {s}')
+            return d
 
         for x in s:
-            #print(x);
-            replystr = self._get_request(x).decode('utf-8')
+            print(x);
+            replystr = self._get_request(x, timeout=timeout).decode('utf-8')
             r = json.JSONDecoder().decode(replystr)
-            #print(r)
+            print(replystr)
+            print(r)
             d = d | r
 
             if 'working' in d:
@@ -230,20 +348,22 @@ class xtool_CLASS:
             if 'status' in d:
                 self.__status = d['status']
 
-            if d['result'] != expect:
+            if expect != '?' and d['result'] != expect:
                 msg = f"bad result from device: {d}"
+                print(msg)
                 #raise Exception(msg)
 
         return d
 
-    def _get_request(self, url, port=None, **kwargs) -> bytes:
+    def _get_request(self, path, port=None, timeout=3, **kwargs) -> bytes:
         if port is None: port = self.PORT
-        full_url = f'http://{self.IP}:{port}{url}'
-        #print('url: ' + full_url)
-        result = requests.get(full_url, timeout=3, **kwargs)
+        url = f'http://{self.IP}:{port}{path}'
+        #print('url: ' + url)
+        self.__lasturl = url
+        result = requests.get(url, timeout=timeout, **kwargs)
         if result.status_code != 200:
             print('status: ' + str(result.status_code))
-            #raise RuntimeError(f'Device returned HTTP status {result.status_code} for GET {full_url}')
+            #raise RuntimeError(f'Device returned HTTP status {result.status_code} for GET {url}')
         return result.content
 
     def none_function(self,dummy=None,bgcolor=None):
@@ -314,12 +434,12 @@ class xtool_CLASS:
         if self.debug: print(f'upload_gc_file:\n{gc}')
  
         files = {'file': ('tmp.gcode', gc)}
-        url = '/cnc/data?filetype=' + xtool_filetype
-        full_url = f'http://{self.IP}:{self.PORT}{url}'
-        if self.debug: print(f'upload_gc_file: {full_url}')
+        path = '/cnc/data?filetype=' + xtool_filetype
+        url = f'http://{self.IP}:{self.PORT}{path}'
+        if self.debug: print(f'upload_gc_file: {url}')
         if self.debug: print(f'upload_gc_file: {files}')
 
-        result = requests.post(full_url, files=files)
+        result = requests.post(url, files=files)
         if self.debug: print(f'upload_gc_file: {result}')
 
         if self.debug: print(self.get_working_state())
@@ -371,8 +491,8 @@ class xtool_CLASS:
         #while self.state != 0:
         #   self.update_state()
 
-        x0 = self.drlocx
-        y0 = self.drlocy
+        x0 = self.__drlocx
+        y0 = self.__drlocy
         self.mark = time.time()
         estjobtime = 0
         # because we are sending gcode line by line there is no way
@@ -413,12 +533,12 @@ class xtool_CLASS:
                #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
                time.sleep(0.010)
 
-           self.drlocx = x0 + segtime[i][4]
-           self.drlocy = y0 + segtime[i][5]
+           self.__drlocx = x0 + segtime[i][4]
+           self.__drlocy = y0 + segtime[i][5]
 
         self.wait_for_laser_to_finish(update_gui, stop_calc)
-        self.drlocx = x0 + segtime[len(gcode)-1][4]
-        self.drlocy = y0 + segtime[len(gcode)-1][5]
+        self.__drlocx = x0 + segtime[len(gcode)-1][4]
+        self.__drlocy = y0 + segtime[len(gcode)-1][5]
 
         NoSleep.inhibit()
 
@@ -476,8 +596,8 @@ class xtool_CLASS:
     def rapid_move(self, dxmils, dymils):
         self.lock.acquire()
         if self.debug: print(f'xtool_lib: rapid_move: dx:{dxmils} mils  dy:{dymils} mils')
-        x0 = self.drlocx
-        y0 = self.drlocy
+        x0 = self.__drlocx
+        y0 = self.__drlocy
 
         xloc = dxmils * 0.0254     # mm
         yloc = -dymils * 0.0254    # mm
@@ -503,8 +623,8 @@ class xtool_CLASS:
         if estjobtime > 0.010:
             elapsed = (time.time() - self.mark) / estjobtime
             while elapsed < 1.2:
-                self.drlocx = x0 + xloc * elapsed
-                self.drlocy = y0 + yloc * elapsed
+                self.__drlocx = x0 + xloc * elapsed
+                self.__drlocy = y0 + yloc * elapsed
                 #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
                 #print(f'{self.get_status()} {self.get_working_state()}')
                 self.get_working_state()
@@ -517,8 +637,8 @@ class xtool_CLASS:
             while self.__working != '0':
                 self.get_working_state()
 
-        self.drlocx = x0 + xloc
-        self.drlocy = y0 + yloc
+        self.__drlocx = x0 + xloc
+        self.__drlocy = y0 + yloc
 
         self.lock.release()
         return 
@@ -689,22 +809,36 @@ if __name__ == "__main__":
     xtool = xtool_CLASS()
     run_laser = False
 
-    try:
-        LOCATION = xtool.initialize_device(verbose=False)
-        
-    # the following does not work for python 2.5
-    except RuntimeError as e: #(RuntimeError, TypeError, NameError, StandardError):
-        print(e)    
-        print("Exiting...")
-        os._exit(0) 
-    
+    LOCATION = xtool.initialize_device(verbose=False)
     print('initialize with location=',LOCATION)
     xtool.initialize_device(LOCATION, verbose=False)
 
-    print('hello', xtool.say_hello())
+    #xtool.q.put(Xmsg(0, ("exit",)))
+    #xtool.worker.join()
+    #print("all done")
+    #exit(0)
+
+    #print('hello', xtool.say_hello())
     print(xtool.unlock_rail())
-    print ("DONE")
 
-    
+    xtool.q.put(Xmsg(9, ("print_status",)))
+    xtool.q.put(Xmsg(9, ("print_status")))
+    #xtool.q.put(Xmsg(9, ("print_status()")))
+    #xtool.q.put(Xmsg(9, ("print_status")))
 
-    
+    print("Press Ctrl-C to stop XTool thread")
+    stop = False
+    try:
+        while True:
+           if stop: break
+    except KeyboardInterrupt:
+        stop = True
+        xtool.q.put(Xmsg(0, ("exit",)))
+
+    if stop:
+        print("XTool worker stoped by user")
+
+    print("wait for XTool thread to finish")
+    xtool.worker.join()
+    print("all done")
+    exit(0)

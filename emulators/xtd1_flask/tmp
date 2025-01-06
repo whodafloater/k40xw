@@ -1,8 +1,0 @@
-{'debug': False, 'nogui': False, 'host': '127.0.0.1', 'port': '8080', 'command': 'run'}
-()
-{'command': 'run'}
-{'host': '127.0.0.1', 'port': '8080', 'debug': False}
-stack:[<tkinter.Tk object .>]
-.!frame 0 pack:  []
-.!frame 0 grid:  []
-.!frame 0 place: []

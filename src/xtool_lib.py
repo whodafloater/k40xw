@@ -32,6 +32,9 @@ import queue
 
 from dataclasses import dataclass, field
 from typing import Any
+from g_code_inc_library import G_Code_Rip_Inc
+
+#from flask import Flask
 
 @dataclass(order=True)
 class Xmsg:
@@ -47,7 +50,10 @@ class xtool_CLASS:
         self.IP = '192.168.0.106'
         self.PORT = 8080
 
+        #self.IP = '127.0.0.1'
+
         self.online_status = False
+        self.simulate = False
 
         self.n_timeouts = 10
         self.timeout    = 200   # Time in milliseconds
@@ -79,11 +85,15 @@ class xtool_CLASS:
         self.__working = '?'
 
 
+        self.gparser = G_Code_Rip_Inc(units='mm')
+
+
         self.q = queue.PriorityQueue()
         self.lock = threading.Lock()
         self.start()
         self.lock.acquire()
         self.lock.release()
+
 
         #for param in self.__dict__:
         #   print(f'xtool_lib: param: {param}')
@@ -184,7 +194,7 @@ class xtool_CLASS:
     def abort(self, *args, **kwargs):
         print(f'------------------ xtool_lib:  abort args:{args}  kw:{kwargs}')
 
-    def initialize_device(self, Location=None, Port=8080, verbose=False):
+    def initialize_device(self, Location=None, Port=None, verbose=False):
         self.lock.acquire()
         """
         Just establish we can talk to a thing
@@ -247,7 +257,7 @@ class xtool_CLASS:
             raise Exception(f'No Response from {self.__lasturl}')
 
         self.lock.release()
-        return d['name'] + " says Hello!"
+        return f'{d["name"]} says Hello! {self.IP}:{self.PORT}'
 
     def head_position(self, unit):
         if unit == 'mm':
@@ -256,8 +266,11 @@ class xtool_CLASS:
         elif unit == 'in':
            x = self.__drlocx / 25.4
            y = self.__yflip * self.__drlocy / 25.4
+        elif unit == 'mil':
+           x = self.__drlocx / 0.0254 
+           y = self.__yflip * self.__drlocy / 0.0254
         else:
-           raise Exception("must specify unit, 'mm' or 'in'")
+           raise Exception("must specify unit, 'mm', 'in', or 'mil'")
         return (x, y)
 
     def head_position_units(self):
@@ -265,8 +278,8 @@ class xtool_CLASS:
 
 
     def get_working_state(self):
-        self.blast([f'/system?action=get_working_sta'])
-        return self.blast([f'/system?action=get_working_sta'])
+        s = self.blast([f'/system?action=get_working_sta'])
+        return s
 
     def get_status(self):
         return self.blast([f'/peripherystatus'])
@@ -336,10 +349,26 @@ class xtool_CLASS:
 
         for x in s:
             print(x);
-            replystr = self._get_request(x, timeout=timeout).decode('utf-8')
-            r = json.JSONDecoder().decode(replystr)
-            print(replystr)
-            print(r)
+            #  /cmd?cmd=
+
+            #if x.find('/cmd?cmd=', 0, 7) == 0:
+            if '/cmd?cmd=' in x:
+                gcode = x[9:len(x)]
+                #print(f'  {gcode:60s}')
+                self.gparser.line(gcode)
+                #print(self.gparser.get_pos('mm'))
+                gx, gy = self.gparser.get_pos('mm')
+                if not isinstance(x, complex): print(f'  {gcode:60s}        gcode loc = {gx,gy}')
+
+            if self.simulate:
+                print(f'simulate: {x}')
+                pass
+            else:
+                replystr = self._get_request(x, timeout=timeout).decode('utf-8')
+                r = json.JSONDecoder().decode(replystr)
+                #print(replystr)
+                #print(r)
+
             d = d | r
 
             if 'working' in d:
@@ -349,21 +378,27 @@ class xtool_CLASS:
                 self.__status = d['status']
 
             if expect != '?' and d['result'] != expect:
-                msg = f"bad result from device: {d}"
+                msg = f"unexpected result from device: {d}"
                 print(msg)
                 #raise Exception(msg)
 
         return d
 
     def _get_request(self, path, port=None, timeout=3, **kwargs) -> bytes:
-        if port is None: port = self.PORT
-        url = f'http://{self.IP}:{port}{path}'
-        #print('url: ' + url)
-        self.__lasturl = url
-        result = requests.get(url, timeout=timeout, **kwargs)
-        if result.status_code != 200:
-            print('status: ' + str(result.status_code))
-            #raise RuntimeError(f'Device returned HTTP status {result.status_code} for GET {url}')
+        if self.simulate:
+            print(f'simulate: {x}')
+            pass
+
+        else:
+            if port is None: port = self.PORT
+            url = f'http://{self.IP}:{port}{path}'
+            #print('url: ' + url)
+            self.__lasturl = url
+            result = requests.get(url, timeout=timeout, **kwargs)
+            if result.status_code != 200:
+                print('status: ' + str(result.status_code))
+                #raise RuntimeError(f'Device returned HTTP status {result.status_code} for GET {url}')
+
         return result.content
 
     def none_function(self,dummy=None,bgcolor=None):
@@ -436,14 +471,17 @@ class xtool_CLASS:
         files = {'file': ('tmp.gcode', gc)}
         path = '/cnc/data?filetype=' + xtool_filetype
         url = f'http://{self.IP}:{self.PORT}{path}'
-        if self.debug: print(f'upload_gc_file: {url}')
-        if self.debug: print(f'upload_gc_file: {files}')
+
+        if self.debug: 
+            print(f'upload_gc_file: {url}')
+            print(f'upload_gc_file: {files}')
 
         result = requests.post(url, files=files)
-        if self.debug: print(f'upload_gc_file: {result}')
 
-        if self.debug: print(self.get_working_state())
-        if self.debug: print(self.get_status())
+        if self.debug:
+            print(f'upload_gc_file: {result}')
+            print(self.get_working_state())
+            print(self.get_status())
 
         if result.status_code == 200:
             print("INFO: upload success!")
@@ -607,10 +645,10 @@ class xtool_CLASS:
         # During a long rapid led will transition to blinking blue
         # after the M108 it will go solid green
         s = [
-             '/cmd?cmd=M17+S1',
+             '/cmd?cmd=M17S1',
              '/cmd?cmd=G92X0Y0',
              '/cmd?cmd=G90',
-             '/cmd?cmd=G1X' + str(xloc) + 'Y' + str(yloc) + 'F' + str(feed) + 'S0',
+             f'/cmd?cmd=G0 X{xloc:0.4f} Y{yloc:0.4f} F{feed:.0f} S0',
              '/cmd?cmd=M108'
             ]
         self.blast(s)
@@ -642,6 +680,71 @@ class xtool_CLASS:
 
         self.lock.release()
         return 
+
+    def manual_tracker_start(self, x, y):
+        self.lock.acquire()
+        print(f'manual_tracker_start: {x,y}')
+        s = [
+             '/cmd?cmd=M17S1',
+             '/cmd?cmd=G92X0Y0',
+             '/cmd?cmd=G90',
+            ]
+        print(f'{"----":50s}{s}')
+        self.blast(s)
+        self.lock.release()
+        return 
+
+    def manual_tracker(self, dxmils, dymils, feed):
+        
+        self.lock.acquire()
+        if self.debug: print(f'xtool_lib: rapid_move: dx:{dxmils} mils  dy:{dymils} mils')
+        x0 = self.__drlocx
+        y0 = self.__drlocy
+
+        xloc = float(dxmils) * 0.0254     # mm
+        yloc = -float(dymils) * 0.0254    # mm
+        feed = int(min(3000, feed))     # mm/min
+        s = [
+             f'/cmd?cmd=G0 X{xloc:0.4f} Y{yloc:0.4f} F{feed:.0f} S0',
+            ]
+        self.blast(s)
+        self.mark = time.time()
+        print(f'{"----":50s}{s}')
+
+        # time estimate, sec = length / (3000 mm/min) * 60 sec/min
+        estjobtime = math.sqrt(xloc * xloc + yloc * yloc) / feed * 60
+        if self.debug: print(f'rapid time = {estjobtime:.2f} sec')
+
+        if estjobtime > 0.010:
+            elapsed = (time.time() - self.mark) / estjobtime
+            while elapsed < 1.0:
+                self.__drlocx = x0 + xloc * elapsed
+                self.__drlocy = y0 + yloc * elapsed
+                #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
+                #print(f'{self.get_status()} {self.get_working_state()}')
+            #   self.get_working_state()
+            #   if self.__working == '0':
+            #       break
+                time.sleep(0.010)
+                elapsed = (time.time() - self.mark) / estjobtime
+        else:
+            #elf.get_working_state()
+            #hile self.__working != '0':
+            #   self.get_working_state()
+            pass
+
+        self.__drlocx = x0 + xloc
+        self.__drlocy = y0 + yloc
+        self.lock.release()
+
+    def manual_tracker_stop(self, x, y):
+        self.lock.acquire()
+        print(f'manual_tracker_stop:')
+        s = [
+             '/cmd?cmd=M108'
+            ]
+        self.blast(s)
+        self.lock.release()
 
     def ecoord_to_gcode(self, data):
          gcode=[]
@@ -802,6 +905,15 @@ class xtool_CLASS:
         for i in range(1):
             time.sleep(0.30)
             print(f'{self.get_status()} {self.get_working_state()}')
+
+#class XToolD1Simulator:
+#    def __init__(self):
+#        self.d1 = Flask("XToolD1Simulator")
+#        self.d1.run(debug=True)
+#
+#    @d1.route("/")
+#    def hello(self):
+#        return "Hello from the XToolD1Simulator"
 
 
 if __name__ == "__main__":

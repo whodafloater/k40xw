@@ -73,11 +73,17 @@ class Params:
         f['dpi'] = {0:'.0f', 'd':'.0f'}
         f['px'] =  {0:'.0f', 'd':'.0f'}
         f['""'] =  {'""':'s', '':'s'}
+        f['baud'] =  {0:'.0f', 'd':'.0f'}
 
         d = dict()
         self.d = d
 
         d['numcheck']          = [StringVar,    self.numcheck, 0, 1e9, "mm", ":s", -9]
+
+        d['ipaddr']            = [StringVar,    "127.0.0.1", 0, 0, "", ":s", ""]
+        d['ipport']            = [StringVar,    "8080"     , 0, 0, "", ":s", ""]
+        d['serialport']        = [StringVar,    "COM19"    , 0, 0, "", ":s", ""]
+        d['serialbaud']        = [StringVar,    "230400"   , 0, 23400, "baud", ":s", 0]
 
         d['include_Reng']      = [BooleanVar,   1, 0,    1, "", ":s", ""]
         d['include_Rpth']      = [BooleanVar,   0, 0,    1, "", ":s", ""]

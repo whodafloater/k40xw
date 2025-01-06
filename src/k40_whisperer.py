@@ -145,7 +145,7 @@ class Application(Frame):
 
         # process command line args
         file_units = None
-        self.ipaddr = '192.168.0.106'
+        #self.ipaddr = '192.168.0.106'
 
         for option, value in opts:
             if option == '--units':
@@ -2317,7 +2317,15 @@ class Application(Frame):
             elif dxf_units=="Mils":
                 dxf_scale = 1.0/1000.0
             else:
-                return    
+                dxf_units = dxf_units.lower()
+                if 'in' in dxf_units:
+                   dxf_scale = 1.0
+                elif 'cm' in dxf_units:
+                   dxf_scale = 1.0/2.54
+                elif 'mm' in dxf_units:
+                   dxf_scale = 1.0/25.4
+                else:
+                   return    
 
             lin_tol = tolerance / dxf_scale
             dxf_import.GET_DXF_DATA(fd,lin_tol=lin_tol,get_units=False,units=None)
@@ -3815,6 +3823,11 @@ class Application(Frame):
                 pass
             self.k40=None
         
+    def DeInitialize_Laser(self, varName, index, mode):
+        self.stop[0]=True
+        self.Release_USB()
+        self.k40=None
+
     def Initialize_Laser(self,event=None):
         if self.GUI_Disabled:
             return
@@ -3826,8 +3839,16 @@ class Application(Frame):
         #self.k40=K40_CLASS()
         #self.k40=MachineBase()
         self.k40=xtool_CLASS()
-        self.k40.IP = self.ipaddr
         self.k40.debug = DEBUG
+
+        self.k40.IP = self.ipaddr.get()
+        self.k40.PORT = self.ipport.get()
+
+        # changes to these settings forace a re-init
+        self.ipaddr.trace_variable("w", self.DeInitialize_Laser)
+        self.ipport.trace_variable("w", self.DeInitialize_Laser)
+
+        msg = 'ok'
 
         try:
             self.k40.initialize_device()
@@ -3844,25 +3865,25 @@ class Application(Frame):
 
             if "BACKEND" in error_text.upper():
                 error_text = error_text + " (libUSB driver not installed)"
-            self.statusMessage.set("USB Error: %s" %(error_text))
+            self.statusMessage.set("Connection Error: %s" %(error_text))
             self.statusbar.configure( bg = 'red' )
             self.k40=None
             debug_message(traceback.format_exc())
+            return
 
         except:
             self.statusMessage.set("Unknown USB Error")
             self.statusbar.configure( bg = 'red' )
             self.k40=None
             debug_message(traceback.format_exc())
+            return
 
         self.statusMessage.set(msg)
         self.statusbar.configure( bg = 'light green' )
-
-        self.manual_home_popup(['hello 1'])
-        return
-
         self.k40.upload_safe_file()
 
+        #self.manual_home_popup(['hello 1'])
+        #return
         try:
             if self.init_home.get():
                 self.Home()
@@ -5118,7 +5139,28 @@ class Application(Frame):
         self.gen_separator2 = Frame(gen_settings, height=2, bd=1, relief=SUNKEN)
         self.gen_separator2.place(x=xd_label_L, y=D_Yloc,width=gen_width-40, height=2)
 
+
+
         D_Yloc=D_Yloc+D_dY*.5
+        self.Label_ipaddr = Label(gen_settings,text="IP address")
+        self.Label_ipaddr.place(x=xd_label_L, y=D_Yloc, width=w_label, height=21)
+        self.Entry_ipaddr = Entry(gen_settings,width="25")
+        self.Entry_ipaddr.place(x=xd_entry_L, y=D_Yloc, width=w_entry*3, height=23)
+        self.Entry_ipaddr.configure(textvariable=self.ipaddr)
+        #self.ipaddr.trace_variable("w", self.Entry_ipaddr_Callback)
+        #self.entry_set(self.Entry_Laser_X_Scale,self.Entry_Laser_X_Scale_Check(),2)
+
+        D_Yloc=D_Yloc+D_dY
+        self.Label_ipport = Label(gen_settings,text="IP address")
+        self.Label_ipport.place(x=xd_label_L, y=D_Yloc, width=w_label, height=21)
+        self.Entry_ipport = Entry(gen_settings,width="25")
+        self.Entry_ipport.place(x=xd_entry_L, y=D_Yloc, width=w_entry*3, height=23)
+        self.Entry_ipport.configure(textvariable=self.ipport)
+        #self.ipport.trace_variable("w", self.Entry_ipport_Callback)
+        #self.entry_set(self.Entry_Laser_X_Scale,self.Entry_Laser_X_Scale_Check(),2)
+
+
+        D_Yloc=D_Yloc+D_dY
         self.Label_no_com = Label(gen_settings,text="Home in Upper Right")
         self.Label_no_com.place(x=xd_label_L, y=D_Yloc, width=w_label, height=21)
         self.Checkbutton_no_com = Checkbutton(gen_settings,text="", anchor=W)
@@ -6198,7 +6240,7 @@ if __name__ == "__main__":
             print('--file       : drawing or gcode file to load on startup')
             print('--units      : for DXF file read')
             print('--pi, -p     : Small screen option (for small raspberry pi display)')
-            print('--debug, -d  : turn on debug output)')
+            print('--debug, -d  : turn on debug output')
             sys.exit()
         elif option in ('-p','--pi'):
             print("pi mode")

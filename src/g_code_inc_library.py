@@ -70,7 +70,7 @@ class G_Code_Rip_Inc:
 
         self.mode_arc  = "incremental" # "absolute"
         self.mode_pos = "absolute"    # "incremental"
-        self.offset = ['','','']
+        self.g92offset = [0,0,0]
 
         self.plane  = "17" # G17 (Z-axis, XY-plane), G18 (Y-axis, XZ-plane), or G19 (X-axis, YZ-plane)
         self.POS     =[complex(0,1),complex(0,1),complex(0,1)]
@@ -87,7 +87,7 @@ class G_Code_Rip_Inc:
         return self.READ_MSG
 
 
-    def get_pos(self, units):
+    def get_pos(self, units, z=False, code=False):
         if units == self.units:
             scale = 1
         elif units == 'mm'   and self.units == 'in':
@@ -99,8 +99,14 @@ class G_Code_Rip_Inc:
 
         x = self.POS[0] * scale
         y = self.POS[1] * scale
-        z = self.POS[2] * scale
-        return x, y, z, self.line_number, self.lastline
+        s = [x, y]
+        if z: 
+           s.append(self.POS[2] * scale)
+        if code:
+           s.append(self.line_number)
+           s.append(self.lastline)
+
+        return s
 
     ################################################################################
     #             Function for outputting messages to different locations          #
@@ -477,6 +483,7 @@ class G_Code_Rip_Inc:
                     if Mnum == "2":
                         self.g_code_data.append([ "M2", "(END PROGRAM)" ])
                     passthru = passthru + "%s%s " %(com[0],com[1])
+                    mvtype = ''
 
                 elif com[0] == "N":
                     pass
@@ -508,9 +515,9 @@ class G_Code_Rip_Inc:
             if mv_flag == 1:
                 if mvtype == 0:
                     self.g_code_data.append([mvtype,pos_last[:],pos[:]])
-                if mvtype == 1:
+                elif mvtype == 1:
                     self.g_code_data.append([mvtype,pos_last[:],pos[:],feed,spindle])
-                if mvtype == 2 or mvtype == 3:
+                elif mvtype == 2 or mvtype == 3:
                     if plane == "17":
                         if self.XYarc2line == False:
                             self.g_code_data.append([mvtype,pos_last[:],pos[:],center[:],feed,spindle])
@@ -532,6 +539,10 @@ class G_Code_Rip_Inc:
                         for line in data:
                             XY=line
                             self.g_code_data.append([1,XY[:3],XY[3:],feed,spindle])
+                elif mvtype == 92:
+                    self.g92offset = pos[:]
+                else:
+                    raise Exception(f'Uh oh. Do not know about move type "{mvtype}"\n    line was:{line}')
             ###############################################################################
             #################################
             self.line_number = line_number
@@ -2171,6 +2182,6 @@ if __name__ == "__main__":
     fin = open(filename,'r')
     for line in fin:
         ripper.line(line)
-        x, y, z, i, s = ripper.get_pos("mm")
+        x, y, z, i, s = ripper.get_pos("mm", z=True, code=True)
         print(f'ripper:  {x:6.2f}  {y:6.2f}  {z:6.2f}  line:{i:4d}: {s}')
     fin.close()

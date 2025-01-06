@@ -10,7 +10,6 @@ from tkinter import filedialog, colorchooser
 from PIL import Image, ImageTk, ImageGrab
 import random
 
-DEBUG = True
 
 def whatami(master, id):
     """
@@ -20,7 +19,7 @@ def whatami(master, id):
        The second field is the database name, usually the same.
        Third field is the class name of the parameter.
     """
-    if not DEBUG: return
+    if not App.debug: return
     if not 'configure' in dir(id): return
 
     print(f'\n---whatami---\n{master.__class__} {master}    {id.__class__} {id}')
@@ -47,6 +46,54 @@ def whatami(master, id):
     #    print(f'   {a:20s}')
 
 
+# https://python-forum.io/thread-755.html
+# https://tkdocs.com/tutorial/grid.html
+def get_widget_attributes(obj):
+    all_widgets = obj.winfo_children()
+    for widg in all_widgets:
+        print('\nWidget Name: {}'.format(widg.winfo_class()))
+        keys = widg.keys()
+        for key in keys:
+            print("Attribute: {:<20}".format(key), end=' ')
+            value = widg[key]
+            vtype = type(value)
+            print('Type: {:<30} Value: {}'.format(str(vtype), value))
+
+
+def pack_or_grid(obj, tklib_style=None):
+    if False and App.debug:
+        print(f'stack:{App.stack}')
+        n = len(App.stack)
+        for i in range(len(App.stack)):
+            print(f'{obj} {i} pack:  {App.stack[i].pack_slaves()}')
+            print(f'{obj} {i} grid:  {App.stack[i].grid_slaves()}')
+            print(f'{obj} {i} place: {App.stack[i].place_slaves()}')
+    
+    s = ''
+    if len(App.stack[-1].pack_slaves()) > 0:
+        obj.pack()
+        s = 'pack'
+    elif len(App.stack[-1].grid_slaves()) > 0:
+        obj.grid()
+        s = 'grid'
+    elif len(App.stack[-1].place_slaves()) > 0:
+        obj.place()
+        s = 'place'
+    elif tklib_style == 'pack':
+        obj.pack()
+        s = 'pack'
+    elif tklib_style == 'grid':
+        obj.grid()
+        s = 'grid'
+    elif tklib_style == 'place':
+        obj.place()
+        s = 'place'
+    else:
+        #raise Exception("pack style ??")
+        #obj.grid()
+        obj.pack(padx=3, pady=3)
+        s = 'pack'
+    return s
 
 
 class EntryMixin:
@@ -190,12 +237,17 @@ class Frame(ttk.Frame):
     def __init__(self, nb=None, tklib_style='pack', **kwargs):
         if nb == None:
             super(Frame, self).__init__(App.stack[-1], **kwargs)
-            self.config(borderwidth=1, relief='solid')
+            self.config(borderwidth=2, relief='solid')
             App.stack.append(self)
+
+            pack_or_grid(self, tklib_style=tklib_style)
             if tklib_style == 'pack':
                 self.pack()
-            else:
+            elif tklib_style == 'grid':
                 self.grid()
+            else:
+                self.place()
+
         else:
             super(Frame, self).__init__(App.nb, **kwargs)
             App.nb.add(self, text=nb)
@@ -210,8 +262,12 @@ class Label(ttk.Label):
 
         whatami(self, App.stack[0])
         print(f'Label   {__name__}  stack:{App.stack}')
-        print(f'Label   {packSlaves(App.stack[-1])}')
-        self.grid()
+
+        pack_or_grid(self)
+        #if tklib_style== 'pack':
+        #    self.pack()
+        #else:
+        #    self.grid()
 
 
 class Button(ttk.Button):
@@ -378,14 +434,20 @@ class Separator(ttk.Separator):
 
     def __init__(self, **kwargs):
         super(Separator, self).__init__(App.stack[-1], **kwargs)
-        self.grid(sticky="we", pady=5)
+        pack_or_grid(self)
+        #self.grid(sticky="we", pady=5)
 
 
-class Labelframe(ttk.Labelframe):
+# ttk.Labelframe
+#     padding
+# tk.LabelFrame
+#     padx pady
+class LabelFrame(ttk.Labelframe):
     """Insert a labelframe."""
 
     def __init__(self, **kwargs):
-        super(Labelframe, self).__init__(App.stack[-1], **kwargs)
+        if App.debug: print(f'{__name__}: {kwargs}')
+        super().__init__(App.stack[-1], **kwargs)
         App.stack.append(App.stack[-1])
         App.stack[-1] = self
         self.grid()
@@ -393,39 +455,75 @@ class Labelframe(ttk.Labelframe):
 
 class Text(tk.Text):
     """Insert a text area."""
-
-    def __init__(self, text='', scroll='', **kwargs):
+    def __init__(self, text='', scroll='', auto_height=False, **kwargs):
         if scroll == '':
             super(Text, self).__init__(App.stack[-1], **kwargs)
             self.grid()
         else:
-            frame = ttk.Frame(App.stack[-1])
-            frame.grid()
-            super(Text, self).__init__(frame, **kwargs)
+            frame = ttk.Frame(App.stack[-1], borderwidth=3, relief='sunken')
+            # grid, pack, place depends on the parent
+            s = pack_or_grid(frame, tklib_style='grid')
+            if s == 'pack':
+                #print('Text bundle ... packed')
+                frame.pack_configure(expand=True, fill='both')
+            elif s == 'grid':
+                #print('Text bundle ... grided')
+                # the frame gets to expand to fill its parent
+                # how the widget fills its cell is hosted by the widget
+                frame.grid_configure(sticky='nsew')
+                # the text widget gets to expand the most 
+                # the weight is what enables resizing
+                # the grid manager is hosted by the parent
+                parent = App.stack[-1]
+                parent.columnconfigure(0, weight=1)
+                parent.rowconfigure(0, weight=1)
+
+            # self is the Text widget
+            super().__init__(frame, **kwargs)
+            # text and scrolls go in a 2x2 grid
+            # inside the new frame
+            # the grid mmanager for the frame gets established here:
             self.grid(row=0, column=0)
+            # the text fills it grid cell
+            self.grid_configure(sticky='nsew', padx=3, pady=3)
+            # the cell 0,0, gets priority for the frame space
+            frame.columnconfigure(0, weight=1)
+            frame.rowconfigure(0, weight=1)
+
+            # scrolls get only what they need
+            frame.columnconfigure(1, weight=0)
+            frame.rowconfigure(1, weight=0)
+
             if 'x' in scroll:
-                scrollx = ttk.Scrollbar(
-                    frame, orient=tk.HORIZONTAL, command=self.xview)
-                scrollx.grid(row=1, column=0, sticky='we')
+                scrollx = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=self.xview)
+                scrollx.grid(row=1, column=0, sticky='swe')
                 self.configure(xscrollcommand=scrollx.set)
             if 'y' in scroll:
-                scrolly = ttk.Scrollbar(
-                    frame, orient=tk.VERTICAL, command=self.yview)
-                scrolly.grid(row=0, column=1, sticky='ns')
+                scrolly = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.yview)
+                scrolly.grid(row=0, column=1, sticky='nsw')
                 self.configure(yscrollcommand=scrolly.set)
+
+        self.parent = App.stack[-1]
         self.insert('1.0', text)
-        self.bind('<<Modified>>', self.on_modify)
-        #self.bind('<<Selection>>', self.on_select)
         self.scrolly = scrolly
+        self.bind('<<Modified>>', self.on_modify)
+        self.bind('<<Selection>>', self.on_select)
+        #self.bind('<Configure>', self.on_configure)
+        self.bind('<Enter>', self.on_enter)
+        self.bind('<Leave>', self.on_leave)
 
-        print(f'scroll options:{scrolly.configure()}')
-        print(f'scroll methods:{set(dir(scrolly))-set(dir(frame))}')
+    def on_enter(self, event=None):
+        print('text window enter', event)
+        #print(self.configure())
 
-        print(f'text options:{self.configure()}')
-        print(f'text methods:{set(dir(self))-set(dir(frame))}')
+    def on_leave(self, event=None):
+        print('text window leave', event)
 
+    def on_frame_configure(self, event=None):
+        print('text window configure', event)
+        
     def on_modify(self, event=None):
-        print('modify', event)
+        print('text modify', event)
         # flag = self.edit_modified()
         # print(flag)
         # if flag:
@@ -607,8 +705,7 @@ class Window:
         if top == None:
             top = tk.Toplevel(App.root)
         top.title(title)
-    #    top.columnconfigure(0, weight=1)
-    #    top.rowconfigure(0, weight=1)
+
         top.bind('<Command-i>', self.inspector)
         top.bind('<Command-p>', self.save_img)
         self.top = top
@@ -616,15 +713,21 @@ class Window:
         #frame = ttk.Frame(top, width=300, height=200, padding=(5, 10))
         frame = ttk.Frame(top, padding=(10, 10))
 
-        if tklib_style== 'pack':
-            frame.pack()
-        else:
-            frame.grid(sticky='nswe')
-
         App.stack.append(frame)
         App.win = top
         App.menus = [tk.Menu(App.win)]
         App.win['menu'] = App.menus[0]
+
+        # this depends on App.stack
+        # it will pefer pack ... so everthing gets pack
+        s = pack_or_grid(frame, tklib_style=tklib_style)
+        if s == 'pack':
+            frame.pack_configure(expand=True, fill='both')
+        elif s == 'grid':
+            # the weight is what enables resizing
+            frame.grid_configure(sticky='nsew')
+            top.columnconfigure(0, weight=1)
+            top.rowconfigure(0, weight=1)
 
     def add_statusbar(self):
         ttk.Separator(top).grid(sticky='we')
@@ -653,7 +756,7 @@ class Window:
     def inspector(self, event=None):
         print('inspector', self)
         print()
-        Inspector(self)
+        Inspector(self.top)
 
 
 class App(tk.Frame):
@@ -683,6 +786,8 @@ class App(tk.Frame):
         App.root.bind('<Escape>', quit)
         App.root.createcommand('tk::mac::ShowPreferences', self.preferences)
         App.root.createcommand('tk::mac::ShowHelp', self.help)
+
+        #App.root['height'] = 600
 
     def run(self):
         """Run the main loop."""

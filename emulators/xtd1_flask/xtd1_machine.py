@@ -5,9 +5,12 @@ import queue
 from dataclasses import dataclass, field
 from typing import Any
 
-import os, signal
+#import os, signal
 
 import tkinter as tk
+#from tkinter import tk
+from tkinter import ttk
+
 import tklib
 from flask import Flask
 from flask import url_for
@@ -34,12 +37,17 @@ class Machine:
         self.flapp_args = dict()
         self.flapp_args['host'] = host
         self.flapp_args['port'] = port
-        self.flapp_args['debug'] = debug
+
+        if debug and nogui:
+            self.flapp_args['debug'] = debug
+            
+
+        tklib.App.debug = debug
 
         print(self.flapp_args)
  
         self.nogui = nogui
-        if not nogui:
+        if True or not nogui:
             # need this before doing any tk stuff
             self.app = None
             self.app = tklib.App('Machine Emulator')
@@ -54,10 +62,15 @@ class Machine:
             self.tickstr = tk.StringVar()
             self.tmpGcode = tk.StringVar()
 
-            self.create()
+            self.create_pack()
             self.tcount = tk.IntVar()
             self.tcount.set(0)
             self.tick()
+            tklib.get_widget_attributes(self.app.root)
+
+            if debug:
+               self.log.insert('end', 'INFO: Flask server debug was disabled because it is run in a thread\n')
+               self.log.insert('end', 'INFO: To debug the server, start with: -d --nogui\n')
 
         self.name = 'xTool D1'
         self.sn   = 'MD1220907E502E9B30'
@@ -76,7 +89,6 @@ class Machine:
 
         self.q = queue.PriorityQueue()
         self.lock = threading.Lock()
-        self.start()
         self.lock.acquire()
         self.lock.release()
 
@@ -95,37 +107,65 @@ class Machine:
         self.tick_annuciator.configure(background='light green')
         
 
-    def create(self):
-        tklib.Label()
-        tklib.Separator()
+    def create_pack(self):
+        #tklib.Label().pack_configure(fill='x')
+        #sep1 = tklib.Separator()
 
-        tklib.Frame()
+        #tklib.Frame().pack_configure(fill='both', expand=True)
+        tklib.Frame().pack_configure(fill='both', expand=True)
 
-        tklib.Frame().grid(row=0, column=0)
+
+        # gcode window
+        tklib.Frame().pack_configure(side='left', fill='y')
+        #tklib.Frame().grid(row=0, column=0)
         tklib.Label(text='tmp.gcode')
-        self.gcode_viewer = tklib.Text(text='', scroll={'y':10})
+        self.gcode_viewer = tklib.Text(text='', scroll={'y':10}, width=30, auto_height=True)
+        #self.gcode_viewer.pack_configure(fill='y', expand=True)
+        self.gcode_viewer.grid_configure(sticky='ns')
         self.app.stack.pop()
 
-        tklib.Frame().grid(row=0, column=1)
-        bed = tklib.Canvas()
-        self.app.stack.pop()
 
-        tklib.Frame().grid(row=0, column=2)
-        tklib.Label()
+        # status panel
+        tklib.Frame().pack_configure(side='right', expand=False, fill='y')
+        tklib.LabelFrame(text='status', padding=2)
+
+        #tklib.Frame().grid(row=0, column=2)
+        #tklib.Label()
         self.tick_annuciator = tklib.Label(text='stopped', background='pink', textvariable=self.tickstr)
-        self.app.stack.pop()
 
         self.app.stack.pop()
+        self.app.stack.pop()
 
+        # plot window
+        tklib.Frame().pack_configure(anchor='center', expand=True, fill='both')
+        #tklib.Frame().grid(row=0, column=1)
+        bed = tklib.Canvas(bg='light blue')
+        bed.pack_configure(expand=True, fill='both')
+        self.app.stack.pop()
+
+
+        self.app.stack.pop()
         tklib.Separator()
 
-        tklib.Frame()
-        self.log = tklib.Text(text='hello', scroll={'y':10})
+        # log output
+        tklib.Frame().pack_configure(side='bottom', expand=True, fill='x')
+        self.log = tklib.Text(text='INfO: gui says "hello"\n', scroll='xy', height=10)
+        self.log.grid_columnconfigure(0, weight=1)
+        self.log.grid_configure(sticky='nsew')
 
+        if False:
+            l =ttk.Label(tklib.App.stack[-1], text="Starting...")
+            l.pack()
+            l.bind('<Enter>', lambda e: l.configure(text='Moved mouse inside'))
+            l.bind('<Leave>', lambda e: l.configure(text='Moved mouse outside'))
+            l.bind('<ButtonPress-1>', lambda e: l.configure(text='Clicked left mouse button'))
+            l.bind('<3>', lambda e: l.configure(text='Clicked right mouse button'))
+            l.bind('<Double-1>', lambda e: l.configure(text='Double clicked'))
+            l.bind('<B3-Motion>', lambda e: l.configure(text='right button drag to %d,%d' % (e.x, e.y)))
 
     def new_gcode(self, *args, **kwargs):
+        if self.nogui: return
         self.log.insert('end', f'tick:{self.tcount.get()}: gcode upload, {len(self.tmp_gcode)} lines\n')
-
         self.tmpGcode.set("".join(self.tmp_gcode))
         self.gcode_viewer.insert('end', self.tmpGcode.get())
 
@@ -220,29 +260,33 @@ class Machine:
         self.worker = threading.Thread(target=self.worker, daemon=True)
         self.worker.start()
 
-        self.server = threading.Thread(target=self.server, daemon=True)
-        self.server.start()
+        if self.nogui:
+           self.server()  # blocks,  ctrl-c to stop it
 
         if not self.nogui:
-           self.app.run()
+           self.server = threading.Thread(target=self.server, daemon=True)
+           self.server.start()
+           self.app.run()       # blocks, runs tk mainloop, must be called from main thread
            print('app finshed')
 
 
         self.q.put(Xmsg(0, ("exit")))
         self.worker.join()
 
-        self.server.shutdown()
-        self.server.join()
-        print('machine finshed')
+        # there is no thread shutdown() method. 
+        try:
+            self.server.shutdown()
+        except AttributeError as e:
+            print(e)
+            print('Flask server shutdown ...')
+            print('machine finshed')
+            # flask thread dies with exit
+            exit(0)
 
-    def start(self):
-        # cannot start tk mainloop in a thread
-        # tk mainloop 
-        #   RuntimeError: Calling Tcl from different apartment
-        #self.worker = threading.Thread(target=self.app.run, daemon=True)
-        #self.worker.start()
-        #return self.worker
-        pass
+        # never reached, prempted above
+        # self.server.join()
+        print('machine finshed')
+        return
 
 
 @flapp.route("/")
@@ -388,10 +432,10 @@ def cnc_data(*args, **kwargs):
 
     return d
 
-@flapp.route('/stopServer', methods=['GET'])
-def stopServer():
-    os.kill(os.getpid(), signal.SIGINT)
-    return jsonify({ "success": True, "message": "Server is shutting down..." })
+#@flapp.route('/stopServer', methods=['GET'])
+#def stopServer():
+#    os.kill(os.getpid(), signal.SIGINT)
+#    return jsonify({ "success": True, "message": "Server is shutting down..." })
 
 
 def main():

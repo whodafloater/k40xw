@@ -82,7 +82,7 @@ class xtool_CLASS:
         self.__feed = 0
         self.__power = 0
         self.__cross = 0
-        self.__working = '?'
+        self.__working = -1
 
 
         self.gparser = G_Code_Rip_Inc(units='mm')
@@ -369,10 +369,12 @@ class xtool_CLASS:
                 #print(replystr)
                 #print(r)
 
+
+            print(f' blast: r = {r}')
             d = d | r
 
             if 'working' in d:
-                self.__working = d['working']
+                self.__working = int(d['working'])
 
             if 'status' in d:
                 self.__status = d['status']
@@ -568,8 +570,8 @@ class xtool_CLASS:
                break;
 
            while time.time() < self.mark + estjobtime:
-               #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
-               time.sleep(0.010)
+               print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
+               time.sleep(0.110)
 
            self.__drlocx = x0 + segtime[i][4]
            self.__drlocy = y0 + segtime[i][5]
@@ -623,6 +625,7 @@ class xtool_CLASS:
 
     def update_state(self):
         d = self.get_working_state()
+        print(f'---update_state {d}')
 
         if d['result'] == 'ok':
             self.state = int(d['working'])   # 0, 1, 2
@@ -663,16 +666,16 @@ class xtool_CLASS:
             while elapsed < 1.2:
                 self.__drlocx = x0 + xloc * elapsed
                 self.__drlocy = y0 + yloc * elapsed
-                #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
+                #print(f'rapid_move: wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
                 #print(f'{self.get_status()} {self.get_working_state()}')
                 self.get_working_state()
-                if self.__working == '0':
+                if self.__working == 0:
                     break
                 time.sleep(0.010)
                 elapsed = (time.time() - self.mark) / estjobtime
         else:
             self.get_working_state()
-            while self.__working != '0':
+            while self.__working != 0:
                 self.get_working_state()
 
         self.__drlocx = x0 + xloc
@@ -723,13 +726,13 @@ class xtool_CLASS:
                 #print(f'wait for machine {self.mark + estjobtime - time.time():6.3f} sec before next code')
                 #print(f'{self.get_status()} {self.get_working_state()}')
             #   self.get_working_state()
-            #   if self.__working == '0':
+            #   if self.__working == 0:
             #       break
                 time.sleep(0.010)
                 elapsed = (time.time() - self.mark) / estjobtime
         else:
             #elf.get_working_state()
-            #hile self.__working != '0':
+            #hile self.__working != 0:
             #   self.get_working_state()
             pass
 
@@ -855,6 +858,7 @@ class xtool_CLASS:
               tot = tot + segtime[i][0]
 
          print(f'Total Time Est: {tot:0.1f} sec')
+         #raise Exception("debug stop")
 
          return gcode, segtime
 

@@ -358,6 +358,7 @@ class G_Code_Rip_Inc:
                     
             mv_flag   = 0
             mvtype = ''    # keep false move out of data  M205 X426 Y403
+            mcodetype = ''
             POS_LAST = POS[:]
             #CENTER  = ['','','']
             CENTER   = POS_LAST[:]
@@ -483,7 +484,7 @@ class G_Code_Rip_Inc:
                     if Mnum == "2":
                         self.g_code_data.append([ "M2", "(END PROGRAM)" ])
                     passthru = passthru + "%s%s " %(com[0],com[1])
-                    mvtype = ''
+                    mcodetype = com[1]
 
                 elif com[0] == "N":
                     pass
@@ -512,7 +513,7 @@ class G_Code_Rip_Inc:
             #print(f'gparse:  mvtype={mvtype}  {pos}')
 
             ###############################################################################
-            if mv_flag == 1:
+            if mv_flag == 1 and mcodetype == '':
                 if mvtype == 0:
                     self.g_code_data.append([mvtype,pos_last[:],pos[:]])
                 elif mvtype == 1:
@@ -542,6 +543,7 @@ class G_Code_Rip_Inc:
                 elif mvtype == 92:
                     self.g92offset = pos[:]
                 else:
+                    print(f'com = {com}')
                     raise Exception(f'Uh oh. Do not know about move type "{mvtype}"\n    line was:{line}')
             ###############################################################################
             #################################
@@ -2163,7 +2165,7 @@ class G_Code_Rip_Inc:
 
 if __name__ == "__main__":
     g_rip = G_Code_Rip_Inc()
-    filename="Z:\\text.ngc"
+    filename="../test/myshape.gcode"
     if len(sys.argv) > 1 and sys.argv[1] != '':
         filename = sys.argv[1]
 

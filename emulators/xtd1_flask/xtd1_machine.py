@@ -112,43 +112,47 @@ class Machine:
         #sep1 = tklib.Separator()
 
         #tklib.Frame().pack_configure(fill='both', expand=True)
+
+        # main frame with the plot window gets to expand
         tklib.Frame().pack_configure(fill='both', expand=True)
 
+        if True:
+            # gcode window
+            tklib.Frame().pack_configure(side='left', fill='y')
+            #tklib.Frame().grid(row=0, column=0)
+            tklib.Label(text='tmp.gcode')
+            self.gcode_viewer = tklib.Text(text='', scroll={'y':10}, width=30, auto_height=True)
+            #self.gcode_viewer.pack_configure(fill='y', expand=True)
+            self.gcode_viewer.grid_configure(sticky='ns')
+            self.app.stack.pop()
 
-        # gcode window
-        tklib.Frame().pack_configure(side='left', fill='y')
-        #tklib.Frame().grid(row=0, column=0)
-        tklib.Label(text='tmp.gcode')
-        self.gcode_viewer = tklib.Text(text='', scroll={'y':10}, width=30, auto_height=True)
-        #self.gcode_viewer.pack_configure(fill='y', expand=True)
-        self.gcode_viewer.grid_configure(sticky='ns')
-        self.app.stack.pop()
 
+        if True:
+            # status panel
+            tklib.Frame().pack_configure(side='right', expand=False, fill='y')
+            tklib.LabelFrame(text='status', padding=2)
 
-        # status panel
-        tklib.Frame().pack_configure(side='right', expand=False, fill='y')
-        tklib.LabelFrame(text='status', padding=2)
+            #tklib.Frame().grid(row=0, column=2)
+            #tklib.Label()
+            self.tick_annuciator = tklib.Label(text='stopped', background='pink', textvariable=self.tickstr)
 
-        #tklib.Frame().grid(row=0, column=2)
-        #tklib.Label()
-        self.tick_annuciator = tklib.Label(text='stopped', background='pink', textvariable=self.tickstr)
+            self.app.stack.pop()
+            self.app.stack.pop()
 
-        self.app.stack.pop()
-        self.app.stack.pop()
-
-        # plot window
-        tklib.Frame().pack_configure(anchor='center', expand=True, fill='both')
-        #tklib.Frame().grid(row=0, column=1)
-        bed = tklib.Canvas(bg='light blue')
-        bed.pack_configure(expand=True, fill='both')
-        self.app.stack.pop()
-
+        if True:
+            # plot window
+            tklib.Frame().pack_configure(anchor='center', expand=True, fill='both')
+            #tklib.Frame().grid(row=0, column=1)
+            bed = tklib.Canvas(bg='light blue')
+            bed.pack_configure(expand=True, fill='both')
+            self.app.stack.pop()
 
         self.app.stack.pop()
         tklib.Separator()
 
-        # log output
-        tklib.Frame().pack_configure(side='bottom', expand=True, fill='x')
+        # log output frame, no expansion. vertical size is
+        # set by the text widget height (number of lines)
+        tklib.Frame().pack_configure(side='bottom', expand=False, fill='x')
         self.log = tklib.Text(text='INfO: gui says "hello"\n', scroll='xy', height=10)
         self.log.grid_columnconfigure(0, weight=1)
         self.log.grid_configure(sticky='nsew')

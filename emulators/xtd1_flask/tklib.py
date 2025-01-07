@@ -242,14 +242,26 @@ class Callback:
 
 def Scrollable(widget, scroll='', **kwargs):
     """Add scrollbars to a widget"""
+    f = None
+    w = None
+    x = None
+    y = None
     if scroll == '':
         w = widget(App.stack[-1], **kwargs)
-        w.grid()
-        return w
+        #w.grid()
+        s = pack_or_grid(w, tklib_style='grid')
     else:
         f = Frame()
         w = widget(App.stack[-1], **kwargs)
         w.grid()
+
+        # the cell 0,0, gets priority for the frame space
+        f.columnconfigure(0, weight=1)
+        f.rowconfigure(0, weight=1)
+        # scrolls get only what they need
+        f.columnconfigure(1, weight=0)
+        f.rowconfigure(1, weight=0)
+
         if 'x' in scroll:
             x = ttk.Scrollbar(App.stack[-1], orient='horizontal')
             x.grid(row=1, column=0, sticky='we')
@@ -261,7 +273,7 @@ def Scrollable(widget, scroll='', **kwargs):
             w.config(yscrollcommand=y.set)
             y.config(command=w.yview)
         App.stack.pop()
-        return w
+    return f, w, x, y
 
 
 class Frame(ttk.Frame):
@@ -509,6 +521,8 @@ class Text(tk.Text):
                 frame.grid_configure(sticky='nsew')
                 # the text widget gets to expand the most 
                 # the weight is what enables resizing
+                #
+                # FIXME let the caller deal with the parent
                 # the grid manager is hosted by the parent
                 parent = App.stack[-1]
                 parent.columnconfigure(0, weight=1)
@@ -534,11 +548,12 @@ class Text(tk.Text):
                 scrollx = ttk.Scrollbar(frame, orient=tk.HORIZONTAL, command=self.xview)
                 scrollx.grid(row=1, column=0, sticky='swe')
                 self.configure(xscrollcommand=scrollx.set)
+                self.scrollx = scrollx
             if 'y' in scroll:
                 scrolly = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.yview)
                 scrolly.grid(row=0, column=1, sticky='nsw')
                 self.configure(yscrollcommand=scrolly.set)
-            self.scrolly = scrolly
+                self.scrolly = scrolly
 
         self.parent = App.stack[-1]
         self.insert('1.0', text)

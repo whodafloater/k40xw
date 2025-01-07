@@ -1,4 +1,30 @@
+#!/usr/bin/env python3
+#
+# MIT liscense
+#
+# original code from:
 # https://github.com/rasql/tk-tutorial
+
+# mods, additions
+#
+# 2025 whodafloater
+#
+# This is a tkinter app framework with some compound widgets.
+# It uses a widget stack to automatically pack, grid or place
+# as widgets are instantiated.
+#
+# You got pack and grid issues? Check these out:
+#     https://python-forum.io/thread-755.html
+#     https://tkdocs.com/tutorial/grid.html
+#     https://tkdocs.com/tutorial/concepts.html
+#
+# tkdocs has code samples in python and tcl/tk side by side
+# which helps decode the tcl\/tk docs
+#
+#     https://www.tcl.tk/man/tcl8.6/TkCmd/pack.htm
+#     https://www.tcl.tk/man/tcl8.6/TkCmd/grid.htm
+
+
 import sys
 import os
 import re
@@ -60,6 +86,13 @@ def get_widget_attributes(obj):
             print('Type: {:<30} Value: {}'.format(str(vtype), value))
 
 
+
+# Once a packing manager is assigned to container
+# all other widgets added to that container must
+# follow suit.
+# A new container at any level in the hierarchy
+# gets to decide: pack, grid, or place
+# this will default to pack unless hinted by tklib_style
 def pack_or_grid(obj, tklib_style=None):
     if False and App.debug:
         print(f'stack:{App.stack}')
@@ -275,7 +308,8 @@ class Button(ttk.Button):
         self.cmd = cmd
         super().__init__(App.stack[-1], text=text, command=self.cb, **kwargs)
         self.bind('<Return>', self.cb)
-        self.grid()
+        s = pack_or_grid(self)
+        #self.grid()
 
     def cb(self, event=None):
         if isinstance(self.cmd, str):
@@ -331,7 +365,8 @@ class Canvas(tk.Canvas):
     def __init__(self, **kwargs):
         # super(Canvas, self).__init__(App.stack[-1], width=w, height=h, bg='light blue')
         super(Canvas, self).__init__(App.stack[-1], **kwargs)
-        self.grid()
+        s = pack_or_grid(self)
+        #self.grid()
         self.bind('<Button-1>', self.start)
         self.bind('<B1-Motion>', self.move)
 
@@ -457,8 +492,9 @@ class Text(tk.Text):
     """Insert a text area."""
     def __init__(self, text='', scroll='', auto_height=False, **kwargs):
         if scroll == '':
-            super(Text, self).__init__(App.stack[-1], **kwargs)
-            self.grid()
+            super().__init__(App.stack[-1], **kwargs)
+            s = pack_or_grid(self, tklib_style='grid')
+            #self.grid()
         else:
             frame = ttk.Frame(App.stack[-1], borderwidth=3, relief='sunken')
             # grid, pack, place depends on the parent
@@ -502,10 +538,10 @@ class Text(tk.Text):
                 scrolly = ttk.Scrollbar(frame, orient=tk.VERTICAL, command=self.yview)
                 scrolly.grid(row=0, column=1, sticky='nsw')
                 self.configure(yscrollcommand=scrolly.set)
+            self.scrolly = scrolly
 
         self.parent = App.stack[-1]
         self.insert('1.0', text)
-        self.scrolly = scrolly
         self.bind('<<Modified>>', self.on_modify)
         self.bind('<<Selection>>', self.on_select)
         #self.bind('<Configure>', self.on_configure)
@@ -530,7 +566,7 @@ class Text(tk.Text):
         #     print('changed called')
         self.edit_modified(False)
         #self.scrolly.set(.7, 1)
-        print(self.scrolly.get())
+        #print(self.scrolly.get())
 
     def on_select(self, event=None):
         print('draw_selection', event)
@@ -808,7 +844,20 @@ class App(tk.Frame):
 
 if __name__ == '__main__':
     app = App('Demo app')
-    Label()
-    Button()
-    Canvas()
+
+    Label(text = 'tcllib Demo',
+        relief='raised', pad=3, anchor='center', background='light green'
+       ).pack_configure(fill='x')
+
+    Frame(borderwidth=5, relief='sunken').pack_configure(expand=True, fill='both')
+    Canvas(bg='powder blue').pack_configure(side='right', expand=True, fill='both')
+    Text(text='hello world!', width=20, height=10).pack_configure(side='left', fill='y')
+    App.stack.pop()
+
+    Frame()
+    Button(text='One').grid_configure(row=0, column=0)
+    Button(text='Two').grid_configure(row=0, column=1)
+    Button(text='Three').grid_configure(row=0, column=2)
+
+    App.stack.pop()
     app.run()

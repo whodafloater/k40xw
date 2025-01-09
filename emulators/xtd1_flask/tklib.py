@@ -46,14 +46,14 @@ def whatami(master, id):
        Third field is the class name of the parameter.
     """
     if not App.debug: return
-    if not 'configure' in dir(id): return
 
     print(f'\n---whatami---\n{master.__class__} {master}    {id.__class__} {id}')
     print(id)
 
-    c = id.configure()
-    for a in c:
-        print(f'   {a:20s} {c[a]}')
+    if 'configure' in dir(id):
+        c = id.configure()
+        for a in c:
+            print(f'   {a:20s} {c[a]}')
 
     # 
     #widget = Widget(master, "frame")
@@ -134,13 +134,20 @@ class EntryMixin:
 
     def add_widget(self, label, widget, kwargs):
         """Add widget with optional label."""
+        print(f'EntryMixin, add_widget to {type(self)}')
         if label == '':
             super(widget, self).__init__(App.stack[-1], **kwargs)
-            self.grid()
+            s = pack_or_grid(self)
+            #self.grid()
         else:
             d = 2 if App.debug else 0
             frame = ttk.Frame(App.stack[-1], relief='solid', borderwidth=d)
-            frame.grid(sticky='e')
+            s = pack_or_grid(frame)
+            if s == 'pack':
+                frame.pack_configure(expand=True, fill='both', side='left')
+            elif s == 'grid':
+                frame.grid(sticky='e')
+
             ttk.Label(frame, text=label).grid()
             super(widget, self).__init__(frame, **kwargs)
             self.grid(row=0, column=1)
@@ -285,13 +292,7 @@ class Frame(ttk.Frame):
             self.config(borderwidth=2, relief='solid')
             App.stack.append(self)
 
-            pack_or_grid(self, tklib_style=tklib_style)
-            if tklib_style == 'pack':
-                self.pack()
-            elif tklib_style == 'grid':
-                self.grid()
-            else:
-                self.place()
+            s = pack_or_grid(self, tklib_style=tklib_style)
 
         else:
             super(Frame, self).__init__(App.nb, **kwargs)
@@ -309,10 +310,6 @@ class Label(ttk.Label):
         print(f'Label   {__name__}  stack:{App.stack}')
 
         pack_or_grid(self)
-        #if tklib_style== 'pack':
-        #    self.pack()
-        #else:
-        #    self.grid()
 
 
 class Button(ttk.Button):
@@ -321,7 +318,6 @@ class Button(ttk.Button):
         super().__init__(App.stack[-1], text=text, command=self.cb, **kwargs)
         self.bind('<Return>', self.cb)
         s = pack_or_grid(self)
-        #self.grid()
 
     def cb(self, event=None):
         if isinstance(self.cmd, str):
@@ -378,7 +374,6 @@ class Canvas(tk.Canvas):
         # super(Canvas, self).__init__(App.stack[-1], width=w, height=h, bg='light blue')
         super(Canvas, self).__init__(App.stack[-1], **kwargs)
         s = pack_or_grid(self)
-        #self.grid()
         self.bind('<Button-1>', self.start)
         self.bind('<B1-Motion>', self.move)
 
@@ -482,7 +477,6 @@ class Separator(ttk.Separator):
     def __init__(self, **kwargs):
         super(Separator, self).__init__(App.stack[-1], **kwargs)
         pack_or_grid(self)
-        #self.grid(sticky="we", pady=5)
 
 
 # ttk.Labelframe
@@ -624,10 +618,20 @@ class Treeview(ttk.Treeview):
     """Insert a treeview area."""
 
     def __init__(self, items=[], **kwargs):
-        super(Treeview, self).__init__(App.stack[-1], **kwargs)
+        super().__init__(App.stack[-1], **kwargs)
         for item in items:
             self.insert('', 'end', text=item)
-        self.grid()
+        #self.grid()
+        parent = App.stack[-1]
+        s = pack_or_grid(self)
+        if s == 'pack':
+            self.pack_configure(expand=True, fill='both')
+        elif s == 'grid':
+            # the weight is what enables resizing
+            self.grid_configure(sticky='nsew')
+            # do not mess with our parent
+            #parent.columnconfigure(0, weight=1)
+            #parent.rowconfigure(0, weight=1)
         self.bind()
         self.bind('<<TreeviewSelect>>', self.draw_selection)
         self.bind('<<TreeviewOpen>>', self.open)
@@ -654,12 +658,23 @@ class Inspector(Treeview):
 
     def __init__(self, widget, **kwargs):
         Window(str(widget))
-        super(Inspector, self).__init__(columns=0, **kwargs)
+        #super().__init__(columns=0, **kwargs)
+        super().__init__(**kwargs)
         Button('Update', 'self.update()')
         self.widget = widget
         self.update()
         self.entry = Entry('Content')
         self.entry.bind('<Return>', self.set_entry)
+
+        print('Entry.__mro__:')
+        print(Entry.__mro__)
+
+        print('my type:', type(self))
+        print(type(self).__mro__)
+
+        print('entry type:', type(self.entry))
+        print(type(self.entry).__mro__)
+
 
     def update(self):
         """Update the configuration data."""
@@ -670,15 +685,19 @@ class Inspector(Treeview):
     def draw_selection(self, event=None):
         id = self.focus()
         val = self.set(id, 0)
-        self.entry.val.set(val)
+        self.entry.var.set(val)
 
     def set_entry(self, event=None):
-        val = self.entry.val.get()
+        whatami(self, App.root)
+        #print('Inspector set_entry val')
+        #print(dir(self.entry))
+        print('Inspector set_entry: var', self.entry.var)
+        val = self.entry.var.get()
         id = self.focus()
         key = self.item(id)['text']
-        self.set(id, 0, val)
-        print(id, key, val)
-        self.widget[key] = val
+        print('Inspector set_entry    -- disabled --:',id, key, val)
+        #self.set(id, 0, val)
+        #self.widget[key] = val
 
 
 class Panedwindow(ttk.Panedwindow):
@@ -769,6 +788,8 @@ class Window:
         App.menus = [tk.Menu(App.win)]
         App.win['menu'] = App.menus[0]
 
+        print(f'Window App.stack: {App.stack}')
+
         # this depends on App.stack
         # it will pefer pack ... so everthing gets pack
         s = pack_or_grid(frame, tklib_style=tklib_style)
@@ -807,7 +828,9 @@ class Window:
     def inspector(self, event=None):
         print('inspector', self)
         print()
-        Inspector(self.top)
+        Inspector(self.top,
+            displaycolumns='#all'
+           )
 
 
 class App(tk.Frame):
@@ -825,6 +848,7 @@ class App(tk.Frame):
         App.root = root
         App.stack = [root]
         App.parent = root
+        App.nb = None
 
         menubar = tk.Menu(root)
         App.root['menu'] = menubar

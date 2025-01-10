@@ -132,7 +132,7 @@ def pack_or_grid(obj, tklib_style=None):
 class EntryMixin:
     """Add label, widget and callback function."""
 
-    def add_widget(self, label, widget, kwargs):
+    def add_widget(self, label, widget, tklib_style='grid', **kwargs):
         """Add widget with optional label."""
         print(f'EntryMixin, add_widget to {type(self)}')
         if label == '':
@@ -142,9 +142,9 @@ class EntryMixin:
         else:
             d = 2 if App.debug else 0
             frame = ttk.Frame(App.stack[-1], relief='solid', borderwidth=d)
-            s = pack_or_grid(frame)
+            s = pack_or_grid(frame, tklib_style=tklib_style)
             if s == 'pack':
-                frame.pack_configure(expand=True, fill='both', side='left')
+                frame.pack_configure(fill='x', side='top')
             elif s == 'grid':
                 frame.grid(sticky='e')
 
@@ -152,12 +152,17 @@ class EntryMixin:
             super(widget, self).__init__(frame, **kwargs)
             self.grid(row=0, column=1)
 
-    def add_cmd(self, cmd):
+    def add_cmd(self, cmd, source=None):
         # if cmd is a string store it, and replace it 'cb' callback function
+        # source allows caller to target a specific widget in multi
+        # widget bundles. example usage in EntryTable
         if isinstance(cmd, str):
             self.cmd = cmd
             cmd = self.cb
-        self.bind('<Return>', lambda event: cmd(self, event))
+        if source == None:
+            self.bind('<Return>', lambda event: cmd(self, event))
+        else:
+            source.bind('<Return>', lambda event: cmd(source, event))
 
     def cb(self, item=None, event=None):
         """Execute the cmd string in the widget context."""
@@ -170,13 +175,84 @@ class EntryMixin:
 class Entry(ttk.Entry, EntryMixin):
     """Create an Entry object with label and callback."""
 
-    def __init__(self, label='', cmd='', val='',  **kwargs):
-        self.var = tk.StringVar()
-        self.var.set(val)
+    def __init__(self, label=None, cmd=None, val=None,  units=None, **kwargs):
+        self.var = None
+        if type(label) == str:
+            self.__dict__[label] = tk.StringVar(name=label, value=val)
+            self.var = self.__dict__[label]
+            self.var.set(val)
+        elif isinstance(label, tk.Variable):
+            self.var = label
+            if self.var.get() == None:
+                self.var.set(val)
 
         self.add_widget(label, Entry, kwargs)
         self['textvariable'] = self.var
         self.add_cmd(cmd)
+
+
+class EntryTable(EntryMixin):
+    """Create an Entry object with label and callback.
+
+       If label is a str, make a tk string variable of that name.
+       Split the string with ';' to make a table of entries.
+
+       Inital valus specficed in var, a list os the same length.
+
+       if label is tk variable, just use that ...
+
+       list of tk variables?
+       Pack them into grid so label|value boundary lines up
+
+       if the tk variable is BooleanVar use a check box
+
+       no change to stack
+
+       If cmd is specified it wiil be called whenever any value
+       in this group is changed.
+
+       To track an individual value use trace_variable()
+    """
+
+    # add_cmd() is from EntryMixin
+    # add_cmd() was modified with a source attribute so
+    # it can target sub widgets
+
+    def __init__(self, label=None, cmd=None, val=None, var=None, units=None, **kwargs):
+
+        self.var = []
+        inital_values = val
+
+        labels = label
+        if isinstance(label, str):
+            labels = values.split(';')
+
+            for label in labels:
+               self.__dict__[label] = tk.StringVar(name=label, value=val)
+               self.var.append(self.__dict__[label])
+               if val != None and type(val) != str and len(val) > 0:
+                   self.var.set(val.pop(0))
+
+        if var != None:
+            for item in var:
+                if isinstance(item, tk.Variable):
+                    self.var.append(item)
+
+        f = Frame()
+        i = 0
+        # grid pack a Label, Entry, maybe a suffix Label for units
+        for item in self.var:
+            ttk.Label(f, text=item._name).grid(row=i, column=0, sticky='we')
+            entry = ttk.Entry(f, textvariable=item)
+            entry.grid(row=i, column=1, sticky='we')
+            if units != None:
+                unit = units.pop(0)
+                print(unit)
+                if unit != None:
+                    ttk.Label(f, text=unit).grid(row=i, column=2, sticky='we')
+            self.add_cmd(cmd, source=entry)
+            i += 1
+        Pop()
 
 
 class Combobox(ttk.Combobox, EntryMixin):
@@ -540,14 +616,17 @@ class LabelFrame(ttk.Labelframe):
 class Text(tk.Text):
     """Insert a text area."""
     def __init__(self, text='', scroll='', auto_height=False, **kwargs):
+        self.widget = None
         if scroll == '':
             super().__init__(App.stack[-1], **kwargs)
+            self.widget = self
             s = pack_or_grid(self, tklib_style='grid')
-            #self.grid()
         else:
             frame = ttk.Frame(App.stack[-1], borderwidth=3, relief='sunken')
+            self.widget = frame
             # grid, pack, place depends on the parent
-            s = pack_or_grid(frame, tklib_style='grid')
+            #s = pack_or_grid(frame, tklib_style='grid')
+            s = pack_or_grid(frame)
             if s == 'pack':
                 #print('Text bundle ... packed')
                 frame.pack_configure(expand=True, fill='both')
@@ -933,6 +1012,7 @@ def Pop(expect=None):
     App.stack.pop()
 
 if __name__ == '__main__':
+    import math
     app = App('Demo app')
 
     def rain_changed(a,b,c):
@@ -953,10 +1033,46 @@ if __name__ == '__main__':
     cb1 = Checkbutton(items='foo;bar;fum', cmd=cb1_clicked)
     Separator(orient='horizontal').pack_configure(fill='x')
     cb2 = Checkbutton(items=['rain', 'snow', 'sleet'])
+
+    # area calculator
+    def params_callback(source, event):
+        print(f'table_callback from:{source}\n     event:{event}') 
+        print(f'table_callback  variable: {source["textvariable"]}')
+
+    r = tk.DoubleVar(name = "radius", value=3.3)
+    q = tk.IntVar(name = "quantity", value=2)
+    a = tk.DoubleVar(name = "area", value=0)
+
+    def compute_area(name1=None, nam2=None, op=None):
+        print(f'{name1} {op}')
+        a.set(round( 3.14 * r.get() * r.get() * q.get(), 3))
+    def compute_radius(name1=None, nam2=None, op=None):
+        print(f'{name1} {op}')
+        r.set( round( math.sqrt(a.get() / 3.14 / q.get()), 3))
+
+    compute_area()
+
+    r.trace_add("write", compute_area)
+    a.trace_add("write", compute_radius)
+    q.trace_add("write", compute_area)
+
+    # area calculator UI
+    Separator(orient='horizontal').pack_configure(fill='x')
+    Label("Circle Area Calculator")
+    params = EntryTable(var = [r, q, a], units = ['mm', None, 'mm^2'], cmd=params_callback)
+    # area calculator end
+
     Pop()
 
-    log = Text(text='hello world!\n', width=20, height=10)
-    log.pack_configure(side='left', fill='y', pady=10)
+    # with scroll the text sits inside another frame
+    # access that frame with log.frame
+    log = Text(text='hello world!\n', width=30, height=10, scroll='xy')
+    log.widget.pack_configure(side='left', fill='y', pady=10)
+
+    # no extra frame with no scroll.
+    # log2.widget is same as log2
+    log2 = Text(text='hello world!\n', width=30, height=10)
+    log2.widget.pack_configure(side='left', fill='y', pady=10)
 
     Pop()
 
@@ -966,8 +1082,6 @@ if __name__ == '__main__':
     Button(text='Three').grid_configure(row=0, column=2)
     Pop()
 
-
     cb2.rain.trace_variable("w", rain_changed)
-
 
     app.run()

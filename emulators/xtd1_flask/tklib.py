@@ -87,29 +87,59 @@ def get_widget_attributes(obj):
 
 
 
-# Once a packing manager is assigned to container
-# all other widgets added to that container must
-# follow suit.
-# A new container at any level in the hierarchy
-# gets to decide: pack, grid, or place
-# this will default to pack unless hinted by tklib_style
 def pack_or_grid(obj, tklib_style=None):
-    if False and App.debug:
-        print(f'stack:{App.stack}')
+    """
+       pack, grid, place or insert
+
+       Once a packing manager is assigned to container
+       all other widgets added to that container must
+       follow suit.
+
+       A new container at any level in the hierarchy
+       gets to decide: pack, grid, place, or insert
+
+       This will default to pack unless hinted by tklib_style
+    """
+
+    # ttk.PanedWindow.insert()
+    # ttk.PanedWindow.add()
+
+    # tk.PanedWindow.add()
+
+    debug = App.debug
+    debug = False
+
+    if debug:
+        print(f'---------- pack_or_grid:  stack: {App.stack}')
+        print(f'---------- pack_or_grid:  {obj}')
+        target = App.stack[-1]
+        print(f'----------        in to:  {target} which is a {type(target)}')
         n = len(App.stack)
-        for i in range(len(App.stack)):
-            print(f'{obj} {i} pack:  {App.stack[i].pack_slaves()}')
-            print(f'{obj} {i} grid:  {App.stack[i].grid_slaves()}')
-            print(f'{obj} {i} place: {App.stack[i].place_slaves()}')
-    
+        for o in App.stack:
+            print(f'\n{o}')
+            if isinstance(o, ttk.Frame):
+                print(f'{o} pack:  {o.pack_slaves()}')
+                print(f'{o} grid:  {o.grid_slaves()}')
+                print(f'{o} place: {o.place_slaves()}')
+            if isinstance(o, ttk.PanedWindow):
+                print(f'{o} panes: {o.panes()}')
+
+    o = App.stack[-1]
     s = ''
-    if len(App.stack[-1].pack_slaves()) > 0:
+    if False:
+        pass
+    elif isinstance(o, ttk.PanedWindow):
+        #obj.add(o)
+        o.insert('end', obj, weight=1)
+        s = 'insert'
+    # the rest assume ttk.Frame
+    elif len(o.pack_slaves()) > 0:
         obj.pack()
         s = 'pack'
-    elif len(App.stack[-1].grid_slaves()) > 0:
+    elif len(o.grid_slaves()) > 0:
         obj.grid()
         s = 'grid'
-    elif len(App.stack[-1].place_slaves()) > 0:
+    elif len(o.place_slaves()) > 0:
         obj.place()
         s = 'place'
     elif tklib_style == 'pack':
@@ -121,11 +151,16 @@ def pack_or_grid(obj, tklib_style=None):
     elif tklib_style == 'place':
         obj.place()
         s = 'place'
+#    elif tklib_style == 'insert':
+#        obj.insert('end')
+#        s = 'insert'
     else:
         #raise Exception("pack style ??")
         #obj.grid()
         obj.pack(padx=3, pady=3)
         s = 'pack'
+
+    if debug: print(f'---------- pack_or_grid: did a {s}\n')
     return s
 
 
@@ -369,14 +404,30 @@ class Frame(ttk.Frame):
         if nb == None:
             super().__init__(App.stack[-1], **kwargs)
             self.config(borderwidth=2, relief='solid')
-            App.stack.append(self)
 
             s = pack_or_grid(self, tklib_style=tklib_style)
+            App.stack.append(self)
 
         else:
             super().__init__(App.nb, **kwargs)
             App.nb.add(self, text=nb)
             App.stack[-1] = self
+
+
+class PanedWindow(ttk.PanedWindow):
+    """Create a Paned Window to accept widgets."""
+
+    def __init__(self, tklib_style='pack', orient='horizontal', **kwargs):
+        super().__init__(App.stack[-1], orient=orient, **kwargs)
+        #self.config(relief='solid')
+
+        s = pack_or_grid(self, tklib_style=tklib_style)
+        self.pack(fill='both', expand=True)
+        App.stack.append(self)
+
+        print(f'{__class__} stack:')
+        for obj in App.stack: print(f'    {str(obj.__class__):40s} {obj}')
+
 
 
 class Label(ttk.Label):
@@ -489,10 +540,11 @@ class Checkbutton:
 class Canvas(tk.Canvas):
     """Define a canvas."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, tklib_style='pack', **kwargs):
         # super(Canvas, self).__init__(App.stack[-1], width=w, height=h, bg='light blue')
-        super(Canvas, self).__init__(App.stack[-1], **kwargs)
-        s = pack_or_grid(self)
+        #super(Canvas, self).__init__(App.stack[-1], **kwargs)
+        super().__init__(App.stack[-1], **kwargs)
+        s = pack_or_grid(self, tklib_style=tklib_style)
         self.bind('<Button-1>', self.start)
         self.bind('<B1-Motion>', self.move)
 
@@ -615,14 +667,15 @@ class LabelFrame(ttk.Labelframe):
 
 class Text(tk.Text):
     """Insert a text area."""
-    def __init__(self, text='', scroll='', auto_height=False, **kwargs):
+    def __init__(self, text='', scroll='', auto_height=False, name='None', **kwargs):
         self.widget = None
         if scroll == '':
-            super().__init__(App.stack[-1], **kwargs)
+            super().__init__(App.stack[-1], name=name, **kwargs)
             self.widget = self
             s = pack_or_grid(self, tklib_style='grid')
         else:
-            frame = ttk.Frame(App.stack[-1], borderwidth=3, relief='sunken')
+            if name != None: name = name + "_scroller"
+            frame = ttk.Frame(App.stack[-1], borderwidth=3, relief='sunken', name=name)
             self.widget = frame
             # grid, pack, place depends on the parent
             #s = pack_or_grid(frame, tklib_style='grid')
@@ -638,11 +691,12 @@ class Text(tk.Text):
                 # the text widget gets to expand the most 
                 # the weight is what enables resizing
                 #
-                # FIXME let the caller deal with the parent
-                # the grid manager is hosted by the parent
-                #parent = App.stack[-1]
-                #parent.columnconfigure(0, weight=1)
-                #parent.rowconfigure(0, weight=1)
+                # Let the caller deal with the parent
+                # The grid manager is hosted by the parent
+                # To mangle the perent here, do this
+                #    parent = App.stack[-1]
+                #    parent.columnconfigure(0, weight=1)
+                #    parent.rowconfigure(0, weight=1)
 
             # self is the Text widget
             super().__init__(frame, **kwargs)
@@ -822,15 +876,6 @@ class Inspector(Treeview):
         #self.widget[key] = val
 
 
-class Panedwindow(ttk.Panedwindow):
-    """Insert a paned window."""
-
-    def __init__(self, **kwargs):
-        super(Panedwindow, self).__init__(App.stack[-1], **kwargs)
-        App.stack.append(self)
-        self.grid()
-
-
 class Notebook(ttk.Notebook):
     def __init__(self, **kwargs):
         # super(Notebook, self).__init__(App.root, **kwargs)
@@ -903,7 +948,7 @@ class Window:
         self.top = top
 
         #frame = ttk.Frame(top, width=300, height=200, padding=(5, 10))
-        frame = ttk.Frame(top, padding=(10, 10))
+        frame = ttk.Frame(top, padding=(10, 10), name="top")
 
         App.stack.append(frame)
         App.win = top
@@ -1026,10 +1071,12 @@ if __name__ == '__main__':
         relief='raised', pad=3, anchor='center', background='light green'
        ).pack_configure(fill='x')
 
-    Frame(borderwidth=5, relief='sunken').pack_configure(expand=True, fill='both')
-    Canvas(bg='powder blue').pack_configure(side='right', expand=True, fill='both')
+    # main frame
+    Frame(name="main", borderwidth=5, relief='sunken').pack_configure(expand=True, fill='both')
 
-    Frame().pack_configure(side='left', fill='y')
+
+    # left side frame
+    Frame(name='control').pack_configure(side='left', fill='y')
     cb1 = Checkbutton(items='foo;bar;fum', cmd=cb1_clicked)
     Separator(orient='horizontal').pack_configure(fill='x')
     cb2 = Checkbutton(items=['rain', 'snow', 'sleet'])
@@ -1064,22 +1111,38 @@ if __name__ == '__main__':
 
     Pop()
 
+    # right side paned content frames
+    PanedWindow(name='content_panes', orient='horizontal')
+
+    # with ttk you need a ttk.Frame to host a ttk.PanedWindow
+    Frame()
+    PanedWindow(name='logs', orient='vertical')
+
     # with scroll the text sits inside another frame
     # access that frame with log.frame
-    log = Text(text='hello world!\n', width=30, height=10, scroll='xy')
-    log.widget.pack_configure(side='left', fill='y', pady=10)
+    log = Text(text='hello world!\n', width=30, height=10, scroll='xy', name='log1')
+    #log.widget.pack_configure(side='left', fill='y', pady=10)
 
     # no extra frame with no scroll.
     # log2.widget is same as log2
-    log2 = Text(text='hello world!\n', width=30, height=10)
-    log2.widget.pack_configure(side='left', fill='y', pady=10)
+    log2 = Text(text='hello world!\n', width=30, height=10, name='log2')
+    #log2.widget.pack_configure(side='left', fill='y', pady=10)
 
     Pop()
+    Pop()
 
-    Frame()
-    Button(text='One').grid_configure(row=0, column=0)
-    Button(text='Two').grid_configure(row=0, column=1)
-    Button(text='Three').grid_configure(row=0, column=2)
+    c = Canvas(bg='powder blue')
+    # calling pack_configure will 'undue' the pane effect 
+    #c.pack_configure(side='right', expand=True, fill='both')
+
+    Pop()  # back to main frame
+    Pop()  # back to top level window
+
+    # now were packing below the main fraim
+    Frame(name="bottom_bar")
+    Button(name='but1', text='One').grid_configure(row=0, column=0)
+    Button(name='but2', text='Two').grid_configure(row=0, column=1)
+    Button(name='but3', text='Three').grid_configure(row=0, column=2)
     Pop()
 
     cb2.rain.trace_variable("w", rain_changed)

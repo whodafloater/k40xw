@@ -667,7 +667,7 @@ class LabelFrame(ttk.Labelframe):
 
 class Text(tk.Text):
     """Insert a text area."""
-    def __init__(self, text='', scroll='', auto_height=False, name='None', **kwargs):
+    def __init__(self, text='', scroll='', auto_height=False, name=None, **kwargs):
         self.widget = None
         if scroll == '':
             super().__init__(App.stack[-1], name=name, **kwargs)

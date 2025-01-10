@@ -161,7 +161,10 @@ class EntryMixin:
 
     def cb(self, item=None, event=None):
         """Execute the cmd string in the widget context."""
-        exec(self.cmd)
+        if callable(self.cmd):
+            self.cmd(self.selection)
+        elif type(self.cmd) == str:
+            exec(self.cmd)
 
 
 class Entry(ttk.Entry, EntryMixin):
@@ -288,14 +291,14 @@ class Frame(ttk.Frame):
 
     def __init__(self, nb=None, tklib_style='pack', **kwargs):
         if nb == None:
-            super(Frame, self).__init__(App.stack[-1], **kwargs)
+            super().__init__(App.stack[-1], **kwargs)
             self.config(borderwidth=2, relief='solid')
             App.stack.append(self)
 
             s = pack_or_grid(self, tklib_style=tklib_style)
 
         else:
-            super(Frame, self).__init__(App.nb, **kwargs)
+            super().__init__(App.nb, **kwargs)
             App.nb.add(self, text=nb)
             App.stack[-1] = self
 
@@ -346,26 +349,66 @@ class Radiobutton:
 
 
 class Checkbutton:
-    """Create a list-based Checkbutton object."""
+    """Create a list-based Checkbutton object.
+       items can be a homogenous list of tk Var's
+       items can be a homogenous list of strings
+       items can be a string ... "one;two;three"
+       items can be a string ... "one;two;three"
 
-    def __init__(self, items='Checkbutton', cmd='', **kwargs):
-        self.items = items.split(';')
-        self.val = []
+       string values cause tk Vars to be created with the same name.
+
+       The values of all the checkboxes are available in the dictionary
+       self.selections
+
+       The tk vars can be accessed and traced the normal way
+       using get(), set(), trace() and friends
+    """
+
+    def __init__(self, items='Checkbutton', cmd=None, tklib_style=None, side='top', anchor='w', **kwargs):
+        if type(items) == str:
+           self.items = items.split(';')
+        else:
+           self.items = items
+        self.var = []
+        self.selection = dict()
         self.cmd = cmd
         for i, item in enumerate(self.items):
-            self.val.append(tk.IntVar())
-            c = ttk.Checkbutton(
-                App.stack[-1], text=item, command=self.cb, variable=self.val[i], **kwargs)
-            c.grid(sticky='w')
 
-    def cb(self):
-        """Evaluate the cmd string in the Checkutton context."""
-        self.selection = []
-        for i, item in enumerate(self.items):
-            if self.val[i].get() == 1:
-                self.selection.append(item)
-        exec(self.cmd)
+            c = None
+            if type(item) == str:
+                self.__dict__[item] = tk.BooleanVar(name=item, value=False)
+                c = ttk.Checkbutton(App.stack[-1],
+                    text=item,
+                    variable=self.__dict__[item],
+                    command=self.__cb,
+                    **kwargs)
+                self.var.append(self.__dict__[item])
+            else:
+                c = ttk.Checkbutton(App.stack[-1],
+                    text=item,
+                    variable=item,
+                    command=self.__cb,
+                    **kwargs)
+                self.var.append(item)
 
+            s = pack_or_grid(c, tklib_style=tklib_style)
+            if s == 'grid':
+                c.grid_configure(sticky='w')
+            elif s == 'pack':
+                c.pack_configure(side=side, anchor=anchor)
+
+    def __cb(self):
+        """update selection dictionary
+           execute user supplied callback function
+        """
+        self.selection = dict()
+        for item in self.var:
+            self.selection[item._name] = item.get()
+
+        if callable(self.cmd):
+            self.cmd(self.selection)
+        elif type(self.cmd) == str:
+            exec(self.cmd)
 
 class Canvas(tk.Canvas):
     """Define a canvas."""
@@ -518,9 +561,9 @@ class Text(tk.Text):
                 #
                 # FIXME let the caller deal with the parent
                 # the grid manager is hosted by the parent
-                parent = App.stack[-1]
-                parent.columnconfigure(0, weight=1)
-                parent.rowconfigure(0, weight=1)
+                #parent = App.stack[-1]
+                #parent.columnconfigure(0, weight=1)
+                #parent.rowconfigure(0, weight=1)
 
             # self is the Text widget
             super().__init__(frame, **kwargs)
@@ -880,9 +923,24 @@ class App(tk.Frame):
         """Show help menu."""
         print('show help')
 
+def Push(frame):
+    App.stack.append(frame)
+
+def Pop(expect=None):
+    if expect != None:
+       if App.stack[-1] != expect:
+           raise Exception(f'Tried to pop {App.stack[-1]} but you requested {expect}')
+    App.stack.pop()
 
 if __name__ == '__main__':
     app = App('Demo app')
+
+    def rain_changed(a,b,c):
+        if cb2.rain.get(): log.insert('end', "it started raining\n")
+        else: log.insert('end', "no more rain\n")
+
+    def cb1_clicked(d):
+        log.insert('end', f'{d}\n')
 
     Label(text = 'tcllib Demo',
         relief='raised', pad=3, anchor='center', background='light green'
@@ -890,13 +948,26 @@ if __name__ == '__main__':
 
     Frame(borderwidth=5, relief='sunken').pack_configure(expand=True, fill='both')
     Canvas(bg='powder blue').pack_configure(side='right', expand=True, fill='both')
-    Text(text='hello world!', width=20, height=10).pack_configure(side='left', fill='y')
-    App.stack.pop()
+
+    Frame().pack_configure(side='left', fill='y')
+    cb1 = Checkbutton(items='foo;bar;fum', cmd=cb1_clicked)
+    Separator(orient='horizontal').pack_configure(fill='x')
+    cb2 = Checkbutton(items=['rain', 'snow', 'sleet'])
+    Pop()
+
+    log = Text(text='hello world!\n', width=20, height=10)
+    log.pack_configure(side='left', fill='y', pady=10)
+
+    Pop()
 
     Frame()
     Button(text='One').grid_configure(row=0, column=0)
     Button(text='Two').grid_configure(row=0, column=1)
     Button(text='Three').grid_configure(row=0, column=2)
+    Pop()
 
-    App.stack.pop()
+
+    cb2.rain.trace_variable("w", rain_changed)
+
+
     app.run()

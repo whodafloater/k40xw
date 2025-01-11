@@ -20,6 +20,8 @@ from urllib.parse import urlparse
 import argparse
 import textwrap
 
+import plotter
+
 flapp = Flask(__name__)
 
 @dataclass(order=True)
@@ -66,7 +68,7 @@ class Machine:
             self.tcount = tk.IntVar()
             self.tcount.set(0)
             self.tick()
-            tklib.get_widget_attributes(self.app.root)
+            #tklib.get_widget_attributes(self.app.root)
 
             if debug:
                self.log.insert('end', 'INFO: Flask server debug was disabled because it is run in a thread\n')
@@ -114,48 +116,66 @@ class Machine:
         #tklib.Frame().pack_configure(fill='both', expand=True)
 
         # main frame with the plot window gets to expand
-        tklib.Frame().pack_configure(fill='both', expand=True)
+        #tklib.Frame().pack_configure(fill='both', expand=True)
+        main = tklib.PanedWindow(name='main', orient='horizontal')
 
+        tklib.Frame(name='codeview', weight=30)
         if True:
             # gcode window
-            tklib.Frame().pack_configure(side='left', fill='y')
+            tklib.Frame().pack_configure(side='left', fill='both', expand=True)
             #tklib.Frame().grid(row=0, column=0)
             tklib.Label(text='tmp.gcode')
-            self.gcode_viewer = tklib.Text(text='', scroll={'y':10}, width=30, auto_height=True)
+            self.gcode_viewer = tklib.Text(text='', scroll='xy', width=20, height=1)
             #self.gcode_viewer.pack_configure(fill='y', expand=True)
-            self.gcode_viewer.grid_configure(sticky='ns')
+            self.gcode_viewer.grid_configure(sticky='nsew')
             self.app.stack.pop()
+            tklib.Pop()
 
+        machine = tklib.Frame(name='machine', weight=70)
+        tklib.PanedWindow(orient='vertical')
+
+        plat = tklib.Frame(name='plat')
 
         if True:
             # status panel
-            tklib.Frame().pack_configure(side='right', expand=False, fill='y')
+            s =tklib.Frame(weight=25).pack_configure(side='right', expand=False, fill='y')
             tklib.LabelFrame(text='status', padding=2)
 
             #tklib.Frame().grid(row=0, column=2)
             #tklib.Label()
             self.tick_annuciator = tklib.Label(text='stopped', background='pink', textvariable=self.tickstr)
 
-            self.app.stack.pop()
-            self.app.stack.pop()
+            tklib.Pop()
+            tklib.Pop(s)
 
         if True:
             # plot window
-            tklib.Frame().pack_configure(anchor='center', expand=True, fill='both')
+            s =tklib.Frame(weight=75).pack_configure(anchor='center', expand=True, fill='both')
             #tklib.Frame().grid(row=0, column=1)
-            bed = tklib.Canvas(bg='light blue')
+            #bed = tklib.Canvas(bg='light blue')
+            bed = plotter.Plotter(tklib.App.stack[-1], width=500, height=500)
             bed.pack_configure(expand=True, fill='both')
-            self.app.stack.pop()
 
-        self.app.stack.pop()
-        tklib.Separator()
+            tklib.Pop(s)
+
+        tklib.Pop()
+        tklib.Pop(plat)  # called with param to verify we know where we are
+
+        #self.app.stack.pop()
+        #tklib.Separator()
 
         # log output frame, no expansion. vertical size is
         # set by the text widget height (number of lines)
-        tklib.Frame().pack_configure(side='bottom', expand=False, fill='x')
-        self.log = tklib.Text(text='INfO: gui says "hello"\n', scroll='xy', height=10)
+        lf = tklib.Frame()
+        #lf = pack_configure(side='bottom', expand=False, fill='x')
+        self.log = tklib.Text(text='INfO: gui says "hello"\n', scroll='xy', height=6, width=1)
         self.log.grid_columnconfigure(0, weight=1)
         self.log.grid_configure(sticky='nsew')
+
+        tklib.Pop()
+        tklib.Pop()
+        tklib.Pop(machine)
+        tklib.Pop(main)
 
         if False:
             l =ttk.Label(tklib.App.stack[-1], text="Starting...")

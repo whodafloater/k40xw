@@ -87,7 +87,7 @@ def get_widget_attributes(obj):
 
 
 
-def pack_or_grid(obj, tklib_style=None):
+def pack_or_grid(obj, tklib_style=None, weight=1):
     """
        pack, grid, place or insert
 
@@ -108,6 +108,7 @@ def pack_or_grid(obj, tklib_style=None):
 
     debug = App.debug
     debug = False
+    #debug = True
 
     if debug:
         print(f'---------- pack_or_grid:  stack: {App.stack}')
@@ -130,8 +131,9 @@ def pack_or_grid(obj, tklib_style=None):
         pass
     elif isinstance(o, ttk.PanedWindow):
         #obj.add(o)
-        o.insert('end', obj, weight=1)
+        o.insert('end', obj, weight=weight)
         s = 'insert'
+        if debug: print(f'---------- pack_or_grid: did a {s} with weight={weight}\n')
     # the rest assume ttk.Frame
     elif len(o.pack_slaves()) > 0:
         obj.pack()
@@ -169,7 +171,7 @@ class EntryMixin:
 
     def add_widget(self, label, widget, tklib_style='grid', **kwargs):
         """Add widget with optional label."""
-        print(f'EntryMixin, add_widget to {type(self)}')
+        #print(f'EntryMixin, add_widget to {type(self)}')
         if label == '':
             super(widget, self).__init__(App.stack[-1], **kwargs)
             s = pack_or_grid(self)
@@ -282,7 +284,7 @@ class EntryTable(EntryMixin):
             entry.grid(row=i, column=1, sticky='we')
             if units != None:
                 unit = units.pop(0)
-                print(unit)
+                #print(unit)
                 if unit != None:
                     ttk.Label(f, text=unit).grid(row=i, column=2, sticky='we')
             self.add_cmd(cmd, source=entry)
@@ -400,12 +402,12 @@ def Scrollable(widget, scroll='', **kwargs):
 class Frame(ttk.Frame):
     """Create a frame to accept widgets."""
 
-    def __init__(self, nb=None, tklib_style='pack', **kwargs):
+    def __init__(self, nb=None, tklib_style='pack', weight=1, **kwargs):
         if nb == None:
             super().__init__(App.stack[-1], **kwargs)
             self.config(borderwidth=2, relief='solid')
 
-            s = pack_or_grid(self, tklib_style=tklib_style)
+            s = pack_or_grid(self, tklib_style=tklib_style, weight=weight)
             App.stack.append(self)
 
         else:
@@ -419,15 +421,13 @@ class PanedWindow(ttk.PanedWindow):
 
     def __init__(self, tklib_style='pack', orient='horizontal', **kwargs):
         super().__init__(App.stack[-1], orient=orient, **kwargs)
-        #self.config(relief='solid')
 
         s = pack_or_grid(self, tklib_style=tklib_style)
         self.pack(fill='both', expand=True)
         App.stack.append(self)
 
-        print(f'{__class__} stack:')
-        for obj in App.stack: print(f'    {str(obj.__class__):40s} {obj}')
-
+        #print(f'{__class__} stack:')
+        #for obj in App.stack: print(f'    {str(obj.__class__):40s} {obj}')
 
 
 class Label(ttk.Label):
@@ -436,8 +436,8 @@ class Label(ttk.Label):
     def __init__(self, text='Label', **kwargs):
         super(Label, self).__init__(App.stack[-1], text=text, **kwargs)
 
-        whatami(self, App.stack[0])
-        print(f'Label   {__name__}  stack:{App.stack}')
+        #whatami(self, App.stack[0])
+        #print(f'Label   {__name__}  stack:{App.stack}')
 
         pack_or_grid(self)
 
@@ -667,7 +667,7 @@ class LabelFrame(ttk.Labelframe):
 
 class Text(tk.Text):
     """Insert a text area."""
-    def __init__(self, text='', scroll='', auto_height=False, name=None, **kwargs):
+    def __init__(self, text='', scroll='', name=None, **kwargs):
         self.widget = None
         if scroll == '':
             super().__init__(App.stack[-1], name=name, **kwargs)
@@ -864,7 +864,7 @@ class Inspector(Treeview):
         self.entry.var.set(val)
 
     def set_entry(self, event=None):
-        whatami(self, App.root)
+        #whatami(self, App.root)
         #print('Inspector set_entry val')
         #print(dir(self.entry))
         print('Inspector set_entry: var', self.entry.var)
@@ -940,7 +940,7 @@ class Window:
 
     def __init__(self, title='Window', top=None, tklib_style='pack'):
         if top == None:
-            top = tk.Toplevel(App.root)
+            top = tk.Toplevel(App.root, width=1000, height=800)
         top.title(title)
 
         top.bind('<Command-i>', self.inspector)
@@ -1029,6 +1029,8 @@ class App(tk.Frame):
         App.root.createcommand('tk::mac::ShowPreferences', self.preferences)
         App.root.createcommand('tk::mac::ShowHelp', self.help)
 
+        # window size is detrermined by the packers
+        #App.root['width'] = 800
         #App.root['height'] = 600
 
     def run(self):

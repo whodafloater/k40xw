@@ -829,7 +829,7 @@ class xtool_CLASS:
                      gc = gc + f' S{power:.0f}'
                      current_power = power
 
-                  gcode.append(f'G1 X{x:0.3f} Y{y:0.3f}')
+                  gcode.append(gc)
                   dt = dist / current_feed * 60  # sec
                   segtime.append([dt, rapid, current_feed, current_power, x, y])
 

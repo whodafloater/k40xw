@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
 
+import sys
+if __name__ == '__main__':
+    sys.path.append("../..")
+    sys.path.append("../../src")
+    print("sys.path =", sys.path)
+
+import argparse
+import textwrap
 import threading
 import queue
 from dataclasses import dataclass, field
@@ -10,15 +18,12 @@ from typing import Any
 import tkinter as tk
 #from tkinter import tk
 from tkinter import ttk
+import emulators.tklib.tklib as tklib
 
-import tklib
 from flask import Flask
 from flask import url_for
 from flask import request
 from urllib.parse import urlparse
-
-import argparse
-import textwrap
 
 import plotter
 
@@ -153,7 +158,7 @@ class Machine:
             s =tklib.Frame(weight=75).pack_configure(anchor='center', expand=True, fill='both')
             #tklib.Frame().grid(row=0, column=1)
             #bed = tklib.Canvas(bg='light blue')
-            bed = plotter.Plotter(tklib.App.stack[-1], width=500, height=500)
+            bed = plotter.Plotter(enable_sketcher=False, width=500, height=500)
             bed.pack_configure(expand=True, fill='both')
 
             tklib.Pop(s)
@@ -191,6 +196,8 @@ class Machine:
         if self.nogui: return
         self.log.insert('end', f'tick:{self.tcount.get()}: gcode upload, {len(self.tmp_gcode)} lines\n')
         self.tmpGcode.set("".join(self.tmp_gcode))
+        #  '0.0' is line 0, column 0
+        self.gcode_viewer.delete('0.0', 'end')
         self.gcode_viewer.insert('end', self.tmpGcode.get())
 
     def worker(self):

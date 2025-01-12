@@ -86,6 +86,82 @@ def get_widget_attributes(obj):
             print('Type: {:<30} Value: {}'.format(str(vtype), value))
 
 
+def report_tree(obj, depth=0):
+    # The tk root windwo is a tk.Tk
+    # str(python_object) returns the tkname
+    # Use name='foo' in the widget instantiation to
+    # set a meaningful name.
+
+    # https://github.com/python/cpython/blob/3.13/Lib/tkinter/__init__.py#L1664
+    # python_object = nametowidget(tkname)
+    #    po = App.root.nametowidget(tkname)
+    #    assert(str(po) == tkname)
+    #    print(f'{type(po)}')
+    #
+    # Can also use po.children
+
+    if depth == 0:
+        print("\n\nreport tree:", obj)
+        print(f'    {"classname":15s}  {"packer":8s}  {"tk name"}')
+        print(f'    {"---------":15s}  {"------":8s}  {"-------"}')
+
+    o = obj
+    childs = list()
+    if isinstance(o, ttk.Frame) or isinstance(o, tk.Tk):
+        for item in o.pack_slaves():
+            childs.append(('pack', item))
+
+        for item in o.grid_slaves():
+            childs.append(('grid', item))
+
+        for item in o.place_slaves():
+            childs.append(('place', item))
+
+    elif isinstance(o, ttk.PanedWindow):
+        for item in o.panes():
+            childs.append(('pane', item))
+
+    # test nametowidget() and children
+    if False:
+        for widget in childs:
+            packstyle, o = widget
+            tkname = str(o)
+            po = App.root.nametowidget(tkname)
+            assert(str(po) == tkname)
+            print(tkname)
+            for name in po.children:
+                print("    ", name)
+
+    #if len(childs) > 0:
+    #    c = o.configure()
+    #    for i in c: 
+    #       if len(c[i]) > 4:
+    #           print(i, c[i][4])
+
+
+    for widget in childs:
+        packstyle, o = widget
+        tkname = str(o)
+        print(f'    {o.__class__.__name__:15s}  {packstyle:8s}  {tkname}')
+        if packstyle == 'pack':
+            pi = o.pack_info()
+            for i in pi: print(f'    {"":7s}    {i:10s} {pi[i]}')
+        if packstyle == 'grid':
+            gi = o.grid_info()
+            for i in gi: print(f'    {"":7s}    {i:10s} {gi[i]}')
+        report_tree(o, depth=depth+1)
+
+
+def report_stack():
+    n = len(App.stack)
+    for o in App.stack:
+        print(f'\n{o}')
+        if isinstance(o, ttk.Frame):
+            print(f'{o} pack:  {o.pack_slaves()}')
+            print(f'{o} grid:  {o.grid_slaves()}')
+            print(f'{o} place: {o.place_slaves()}')
+        if isinstance(o, ttk.PanedWindow):
+            print(f'{o} panes: {o.panes()}')
 
 def pack_or_grid(obj, tklib_style=None, weight=1):
     """
@@ -115,15 +191,7 @@ def pack_or_grid(obj, tklib_style=None, weight=1):
         print(f'---------- pack_or_grid:  {obj}')
         target = App.stack[-1]
         print(f'----------        in to:  {target} which is a {type(target)}')
-        n = len(App.stack)
-        for o in App.stack:
-            print(f'\n{o}')
-            if isinstance(o, ttk.Frame):
-                print(f'{o} pack:  {o.pack_slaves()}')
-                print(f'{o} grid:  {o.grid_slaves()}')
-                print(f'{o} place: {o.place_slaves()}')
-            if isinstance(o, ttk.PanedWindow):
-                print(f'{o} panes: {o.panes()}')
+        report_tree(obj)
 
     o = App.stack[-1]
     s = ''
@@ -255,7 +323,7 @@ class EntryTable(EntryMixin):
     # add_cmd() was modified with a source attribute so
     # it can target sub widgets
 
-    def __init__(self, label=None, cmd=None, val=None, var=None, units=None, **kwargs):
+    def __init__(self, label=None, cmd=None, val=None, var=None, units=None, entry_width=None, **kwargs):
 
         self.var = []
         inital_values = val
@@ -279,14 +347,22 @@ class EntryTable(EntryMixin):
         i = 0
         # grid pack a Label, Entry, maybe a suffix Label for units
         for item in self.var:
-            ttk.Label(f, text=item._name).grid(row=i, column=0, sticky='we')
-            entry = ttk.Entry(f, textvariable=item)
-            entry.grid(row=i, column=1, sticky='we')
+
+            if isinstance(item, tk.BooleanVar):
+                entry = ttk.Checkbutton(f, variable=item, text='', width=entry_width)
+                entry.grid(row=i, column=2, sticky='we')
+                ttk.Label(f, text=item._name).grid(row=i, column=1, sticky='we')
+
+            else:
+                ttk.Label(f, text=item._name).grid(row=i, column=1, sticky='we')
+                entry = ttk.Entry(f, textvariable=item, width=entry_width)
+                entry.grid(row=i, column=2, sticky='we')
+
             if units != None:
                 unit = units.pop(0)
                 #print(unit)
                 if unit != None:
-                    ttk.Label(f, text=unit).grid(row=i, column=2, sticky='we')
+                    ttk.Label(f, text=unit).grid(row=i, column=3, sticky='we')
             self.add_cmd(cmd, source=entry)
             i += 1
         Pop()
@@ -662,7 +738,7 @@ class LabelFrame(ttk.Labelframe):
         super().__init__(App.stack[-1], **kwargs)
         App.stack.append(App.stack[-1])
         App.stack[-1] = self
-        self.grid()
+        pack_or_grid(self)
 
 
 class Text(tk.Text):

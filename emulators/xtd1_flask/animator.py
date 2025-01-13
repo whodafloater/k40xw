@@ -71,7 +71,8 @@ class Animator:
         self.ivmax = self.vmax * self.ipmm * self.ratio
         self.iamax = self.amax * self.ipmm * self.ratio
 
-    def load_gcode():
+    def load_gcode(self, gcode):
+
         pass
 
     def add_move(self, x, y, feed, power, led):

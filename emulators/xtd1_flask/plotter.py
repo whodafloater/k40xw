@@ -21,6 +21,8 @@ import emulators.tklib.tklib as tklib
 from xtd1 import XTD1
 import animator
 
+import path
+
 def point_scale(xy, scale, offset=None):
     if offset==None:
         if len(xy) == 4:
@@ -32,16 +34,6 @@ def point_scale(xy, scale, offset=None):
             return (xy[0]*scale+offset[0], xy[1]*scale+offset[1], xy[2]*scale+offset[0], xy[3]*scale+offset[1])
         if len(xy) == 2:
             return (xy[0]*scale+offset[0], xy[1]*scale+offset[1])
-
-@dataclass()
-class Path:
-    cids: list
-    pix_per_mm:  float
-    power:  int
-    feed:   int
-    cross:  int
-    points: list
-    scale:  float
 
 class Gcode():
     def __init__(self):
@@ -163,7 +155,7 @@ class SketchControl(tklib.Frame):
             pix_per_mm -- pixels per mm during mouse capture. This indicates capture resolution.
         """
         if cids == None: return
-        self.paths.append( Path( cids = cids,
+        self.paths.append( path.Path( cids = cids,
                                  points = list(),
                                  power = self.power.get(),
                                  feed = self.feed.get(),
@@ -376,8 +368,20 @@ class Plotter(tklib.Frame):
            self.test()
 
         self.tick()
-        self.anim.program_move(200, 100, 50, 5, 0)
         # wait for the configure event to do anything with the canvas
+        return
+
+    def test_anim(self):
+        self.anim.add_move(200, 100, 50, 0, 1)
+        self.anim.add_move(200, 150, 50, 5, 0)
+        self.anim.add_move(150, 150, 50, 5, 0)
+        self.anim.add_move(150, 100, 50, 5, 0)
+        self.anim.add_move(200, 100, 50, 5, 0)
+        self.anim.add_move(  0,   0, 50, 0, 1)
+        self.anim.add_move(  0,   0, 50, 0, 0)
+
+        self.anim.turbo(10)
+        self.anim.start()
         return
 
     def tick(self):
@@ -545,6 +549,9 @@ class Plotter(tklib.Frame):
         test = tklib.Button(text="add test R", cmd=self.test_add_bed)
         test.pack_configure(side='left')
 
+        test = tklib.Button(text="test anim", cmd=self.test_anim)
+        test.pack_configure(side='left')
+
         #tklib.Button(text="update conv", cmd=self._update_converters
         #   ).pack_configure(side='left')
 
@@ -636,7 +643,7 @@ class Plotter(tklib.Frame):
         pass
 
     def xy(self, event):
-        print(f'xy: {event}')
+        #print(f'xy: {event}')
         self.lastx, self.lasty = self.c.canvasx(event.x), self.c.canvasy(event.y)
 
     def addLine(self, event):
@@ -647,14 +654,14 @@ class Plotter(tklib.Frame):
         if t < 0.300 and d < 4: return
         if d < 0.3: return
 
-        print(f'line {d} {x2,y2} {event}')
+        #print(f'line {d} {x2,y2} {event}')
         self.c.create_line((self.lastx, self.lasty, x2, y2), fill=self.color, width=5, tags=['currentline','sketch'])
         self.lastx, self.lasty = x2, y2
         self.lastime = time.time()
 
     def doneStroke(self, event):
         
-        print(f' done stroke:{event}')
+        #print(f' done stroke:{event}')
         ids = self.c.find_withtag('currentline')
         #self.c.itemconfigure(ids, width=1)        
         self.c.itemconfigure('currentline', width=1)        
@@ -662,7 +669,7 @@ class Plotter(tklib.Frame):
         for id in ids:
             self.c.dtag(id, 'currentline')
             
-        print(f' tags for id:{ids}')
+        #print(f' tags for id:{ids}')
         #print(f' tags for id:{id}   {self.c.gettags(id)} ')
         self.sk.add_path(cids=ids, pix_per_mm = self.zoom)
 

@@ -23,7 +23,8 @@ class Token(NamedTuple):
     lineno: int
     column: int
 
-debug_tok = False
+#debug_tok = False
+debug_tok = True
  
 def gcode_tokenize(code):
     """G-Code tokenizer
@@ -96,6 +97,10 @@ def gcode_tokenize(code):
 
         elif kind == 'ID' and value in keywords:
             kind = 'word'
+
+        elif kind == 'OP' and value in binary_op:
+            precedence = binary_op[value]
+            kind = 'binary_op'
 
         elif kind == 'ID' and value in binary_op:
             precedence = binary_op[value]
@@ -202,7 +207,7 @@ class Gcode():
 
 
 
-    def motion_apply(self):
+    def motion_apply(self, codes):
         # Section 3.8, table 8
         # Items are executed in the order shown if they occur on the same line.
         #   1. comment (includes message).
@@ -233,8 +238,90 @@ class Gcode():
         # M   Zero to four M words but only one from each group
         #     special case: M7 and M8 may be active at the same time
         # Others, only one allowed
-        pass
 
+        print("motion apply:", codes)
+
+        if 'X' in codes:
+           if type(codes['X']) == list:
+               self.expr_eval(codes['X'])
+
+
+    def expr_eval(self, toks):
+        s = ''
+        for t in toks:
+            type, value, prec = t
+            s = s + str(value)
+            print(t)
+        print(s)
+
+
+    @staticmethod
+    def stack_op(stack, op):
+        if op == '+':      stack.append( stack.pop() + stack.pop() )
+        elif op == '-':    stack.append( stack.pop() - stack.pop() )
+        elif op == '*':    stack.append( stack.pop() * stack.pop() )
+        elif op == '/':    stack.append( stack.pop(-2) / stack.pop() )
+        elif op == '**':   stack.append( math.pow(stack.pop(-2), stack.pop()) )
+        elif op == 'MOD':  stack.append( int(stack.pop(-2)) % int(stack.pop()) )
+        elif op == 'OR':   stack.append( bool(stack.pop()) or bool(stack.pop()) )
+        elif op == 'AND':  stack.append( bool(stack.pop()) and bool(stack.pop()) )
+        elif op == 'XOR':  stack.append( bool(stack.pop()) ^ bool(stack.pop()) )
+        elif op == 'SIN':  stack.append( math.sin(stack.pop()) )
+        elif op == 'COS':  stack.append( math.cos(stack.pop()) )
+        elif op == 'TAN':  stack.append( math.tan(stack.pop()) )
+        elif op == 'ASIN': stack.append( math.asin(stack.pop()) )
+        elif op == 'ACOS': stack.append( math.acos(stack.pop()) )
+        elif op == 'ATAN': stack.append( math.atan2(stack.pop(-2) / stack.pop()) )
+        elif op == 'FUP':  stack.append( ceil(stack.pop()) )
+        elif op == 'FIX':  stack.append( floor(stack.pop()) )
+        elif op == 'ABS':  stack.append( abs(stack.pop()) )
+        elif op == 'EXP':  stack.append( math.exp(stack.pop(-2), stack.pop()))
+        elif op == 'LN':   stack.append( math.log(stack.pop()))
+        elif op == 'SQRT':  stack.append( math.sqrt(stack.pop()) )
+        elif op == 'ROUND': stack.append( round(stack.pop()) )
+        else: raise Exception(f' do not know about operation: {op}')
+        return stack[-1]
+
+    @staticmethod
+    def stacktest():
+        stack = list()
+
+        stack.append(1)
+        stack.append(3)
+        stack.append(2)
+        #print(stack)
+        x = Gcode.stack_op(stack, '*')
+        x = Gcode.stack_op(stack, '+')
+        #print(stack)
+        #print(x)
+        assert(x == 7)
+
+        stack.append(2)
+        x = Gcode.stack_op(stack, '/')
+        #print(x)
+        assert(x == 3.5)
+
+        stack.append(3)
+        stack.append(2)
+        x = Gcode.stack_op(stack, 'MOD')
+        assert(x == 1)
+
+        stack.append(-0.499)
+        x = Gcode.stack_op(stack, 'ROUND')
+        assert(x == 0)
+        
+        stack.append(-0.501)
+        x = Gcode.stack_op(stack, 'ROUND')
+        assert(x == -1)
+        
+        stack.append(2.44)
+        x = Gcode.stack_op(stack, 'ROUND')
+        assert(x == 2)
+        
+        stack.append(9.975)
+        x = Gcode.stack_op(stack, 'ROUND')
+        assert(x == 10)
+        
 
     def program_init(self):
         pass
@@ -252,6 +339,8 @@ class Gcode():
             lineno = tok.lineno
             codes, tok = self.collect_line(tokgen, tok)
             print(f'line {lineno:4d} {codes}') 
+
+            self.motion_apply(codes)
 
             if tok.type == 'MARKEND':
                break
@@ -344,6 +433,7 @@ class Gcode():
 
         # collect expr toks in a list 
         expr = list()
+        expr.append([tok.type, tok.value, tok.precedence])
         while True:
             tok = next(tokgen, self.default_tok)
             #print(f'{"":20s} epression   {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
@@ -377,7 +467,6 @@ class Gcode():
         if self.markstart != None and self.markstop == None:
             self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
 
-        print(self.Xminmax, self.Yminmax)
         self.print_warn()
 
     def print_warn(self):
@@ -478,6 +567,12 @@ class Gcode():
 if __name__ == '__main__':
 
     import gcode_samples
+
+    Gcode.stacktest()
+
+    Gcode().parse_gcode(b'x [1 + 2 * 3 - 4 / 5] (x should be 6.2)')
+
+    exit(0)
 
     samples = [
                gcode_samples.gc1,

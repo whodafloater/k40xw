@@ -1,3 +1,7 @@
+#!/usr/bin/env python3
+# 2025 whodafloater
+# MIT license
+
 from textwrap import dedent
 from io import UnsupportedOperation
 import math
@@ -168,3 +172,6 @@ gc_expression_test = dedent(f'''
         n0480 m2
         ''').strip().encode('utf-8')
 
+if __name__ == '__main__':
+    print("Nothing to do here. Stop running me!")
+    exit(1)

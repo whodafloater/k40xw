@@ -1,6 +1,15 @@
+from textwrap import dedent
+from io import UnsupportedOperation
+import math
+import re
+from textwrap import dedent
 
-if True:
-    gc1 = dedent(f'''
+import path
+from typing import NamedTuple
+import re
+
+
+gc1 = dedent(f'''
         %
         % sample gcode
         M17 S1  (enable steppers)
@@ -23,7 +32,7 @@ if True:
         %
         ''').strip().encode('utf-8')
 
-    gc2 = dedent(f'''
+gc2 = dedent(f'''
         M17 S1
         M205 X426 Y403
         M101
@@ -41,11 +50,10 @@ if True:
         M18
         ''').strip().encode('utf-8')
 
-    # https://en.wikipedia.org/wiki/G-code
-    # from https://www.nist.gov/publications/nist-rs274ngc-interpreter-version-3?pub_id=823374
-
-    gc_hello_world = dedent(f'''
-        (this program mills “Hello world” between X=0 and X=81 millimeters)
+# https://en.wikipedia.org/wiki/G-code
+# from https://www.nist.gov/publications/nist-rs274ngc-interpreter-version-3?pub_id=823374
+gc_hello_world = dedent(f'''
+        (this program mills 'Hello world' between X=0 and X=81 millimeters)
         n0010 g21 g0 x0 y0 z50 (top of part should be on XY plane)
         n0020 t1 m6 m3 f20 s4000 (use an engraver or small ball-nose endmill)
         n0030 g0 x0 y0 z2
@@ -106,12 +114,10 @@ if True:
         n0590 g2 j2.5 y5
         n0600 g1 x81
         n0610 g0 z50
-        ''')
+        n0620 m2
+        ''').strip().encode('utf-8')
 
-#.strip().encode('utf-8')
-#        n0620 m2
-
-    gc_expression_test = dedent(f'''
+gc_expression_test = dedent(f'''
         n0010 g21 g1 x3 f20 (expression test)
         n0020 x [1 + 2] (x should be 3)
         n0030 x [1 - 2] (x should be -1)

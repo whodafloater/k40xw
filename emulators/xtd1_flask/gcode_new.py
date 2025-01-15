@@ -19,9 +19,18 @@ from enum import Enum
 class Token(NamedTuple):
     type: str
     value: str
-    precedence: int
+#    arity: int
+#    precedence: int
     lineno: int
     column: int
+
+class Expr(NamedTuple):
+    toks: list[Token]
+
+class Assign(NamedTuple):
+    name: list[Token]
+    expr: Expr
+
 
 #debug_tok = False
 debug_tok = True
@@ -59,10 +68,15 @@ def gcode_tokenize(code):
 
     # example: ABS [ expr ]
     unary_fn =  ['ABS', 'EXP', 'FIX', 'FUP', 'LN', 'ROUND', 'SQRT',
-                 'ACOS', 'ASIN', 'ATAN', 'COS', 'SIN', 'TAN']
+                 'ACOS', 'ASIN', 'COS', 'SIN', 'TAN']
 
-    # example: ATAN [ Y expr ] / [ X expr ]
-    ratio_fn =  ['ATAN']
+    binary_fn =  []
+
+    ternary_fn =  ['ATAN']
+
+    arity = dict()
+    arity['ATAN'] = [Expr, Token , Expr]
+    # example: ATAN [ Y expr ] / [ X expr ]  we accept expr op expr as args
 
     token_specification = [
         ('NUMBER',   r'\d+(\.\d*)?'),  # Integer or decimal number
@@ -74,7 +88,7 @@ def gcode_tokenize(code):
         ('COMMENTP', r'%[^\n]+'),      # % comment, do not eat the \n
         ('COMMENT',  r'[(][^)]*[)]'),  # ( comment ), do not eat the \n
         ('ID',       r'[A-Za-z]+'),    # Identifiers
-        ('OP',       r'[+\-*/]'),      # Arithmetic operators
+        ('OP',       r'([*][*])|([+\-*/])'),  # Arithmetic operators
         ('NEWLINE',  r'\n'),           # Line endings
         ('SKIP',     r'[ \t]+'),       # Skip over spaces and tabs
         ('BO',       r'\['),           # expression
@@ -91,6 +105,7 @@ def gcode_tokenize(code):
         value = mo.group()
         column = mo.start() - line_start
         precedence = 0
+        arity = 0
 
         if kind == 'NUMBER':
             value = float(value) if '.' in value else int(value)
@@ -101,16 +116,24 @@ def gcode_tokenize(code):
         elif kind == 'OP' and value in binary_op:
             precedence = binary_op[value]
             kind = 'binary_op'
+            arity = 2
 
         elif kind == 'ID' and value in binary_op:
             precedence = binary_op[value]
             kind = 'binary_op'
+            arity = 2
 
         elif kind == 'ID' and value in unary_fn:
             kind = 'unary_fn'
+            arity = 1
 
-        elif kind == 'ID' and value in ratio_fn:
-            kind = 'ratio_fn'
+        elif kind == 'ID' and value in binary_fn:
+            kind = 'binary_fn'
+            arity = 2
+
+        elif kind == 'ID' and value in ternary_fn:
+            kind = 'ternary_fn'
+            arity = 3
 
         elif kind == 'NEWLINE':
             line_start = mo.end()
@@ -128,8 +151,9 @@ def gcode_tokenize(code):
         elif kind == 'MISMATCH':
             raise RuntimeError(f'{value!r} unexpected on line {line_num}')
 
-        if debug_tok: print(f'{"":10s} new token  line:{line_num:4d}  {kind:20s}  {value}')
-        yield Token(kind, value, precedence, line_num, column)
+        if debug_tok: print(f'{"":10s} new token  line:{line_num:4d} col:{column:2d}  {kind:20s}  {value}')
+        #yield Token(kind, value, arity, precedence, line_num, column)
+        yield Token(kind, value, line_num, column)
 
 
 class CANON_UNITS(Enum):
@@ -166,10 +190,27 @@ class Gcode():
             The NIST RS274NGC Interpreter - Version 3
             Kramer, Proctro, Messina August 17, 2000 
     '''
-    def __init__(self) -> None:
+    def __init__(self, debug=False) -> None:
 
+        self.debug = debug
         s = self
-        self.default_tok = Token('END', 'end', -1, -1, -1)
+        #self.default_tok = Token('END', 'end', -1, -1, -1, -1)
+        self.default_tok = Token('END', 'end', -1, -1)
+        s.arity = dict()
+        s.arity['binary_op'] = 2
+        s.arity['unary_fn'] = 1
+
+        s.precedence = dict()
+        s.precedence['**'] = 3
+        s.precedence['*'] = 2
+        s.precedence['/'] = 2
+        s.precedence['MOD'] = 2
+        s.precedence['+'] = 1
+        s.precedence['-'] = 1
+        s.precedence['OR'] = 1
+        s.precedence['XOR'] = 1
+        s.precedence['AND'] = 1
+        s.precedence[']'] = 0   # looks like an operaotr because it follows a value
 
         s.G_group = dict()
         s.M_group = dict()
@@ -242,11 +283,177 @@ class Gcode():
         print("motion apply:", codes)
 
         if 'X' in codes:
-           if type(codes['X']) == list:
-               self.expr_eval(codes['X'])
+           if type(codes['X']) == Expr:
+               pass
+               #self.expr_eval(e = codes['X'])
 
 
-    def expr_eval(self, toks):
+    def expr_eval(self, e:Expr = None, i=None):
+        if e == None: return 0
+        if type(e) != Expr: return e
+        if len(e.toks) == 0:
+            return 0
+
+        stack = list()
+        brain = list()
+        s = ''
+
+        if self.debug: print('expr_eval:', Gcode.reconstruct(e))
+
+        if i == None:
+            i = 0
+
+        t = e.toks[i]
+        if t.type != "BO":
+            raise Exception(f'expression eval must start with a "["' + Gcode.where(t))
+        bo = 1
+
+        while True:
+           # hope that we are done
+           if len(stack) == 1 and len(brain) == 0 and i == len(e.toks)-1:
+               print("return because were at the end")
+               return stack[0], i
+
+           if bo == 0:
+               print("return because brackets closed")
+               return stack[0], i
+
+           i += 1
+           if i > len(e.toks)-1:
+               raise Exception(f'bad expression')
+
+           t = e.toks[i]
+           #kind, value, prec = t.type, t.value, t.precedence
+           kind, value = t.type, t.value
+           print("eval: new tok is", kind)
+
+           if kind == 'NUMBER':
+               stack.append(value)
+           elif kind == 'BO':
+               #stack.append(kind)
+               bo += 1
+           elif kind == 'BC':
+               bo -= 1
+               #Gcode.show_stack(e, stack, brain)
+               #v = stack.pop(0)  # reomce the BO from the bottom
+               #Gcode.show_stack(e, stack, brain)
+               #if v != 'BO':
+               #   raise Exception(f'bracket error in expression at line:{t.lineno} column:{t.column} got {v}')
+           elif kind == 'binary_op':
+               brain.append(t)
+           elif kind == 'unary_fn':
+               brain.append(t)
+               print(" recurse to eval arg1 ...")
+               arg, i = self.expr_eval(e, i+1)
+               stack.append(arg)
+               kind = 'NUMBER'
+           elif kind == 'binary_fn':
+               brain.append(t)
+               arg, i = self.expr_eval(e, i+1)
+               stack.append(arg)
+               arg, i = self.expr_eval(e, i+1)
+               stack.append(arg)
+               kind = 'NUMBER'
+           elif kind == 'ternary_fn':
+               brain.append(t)
+               for argc in range(3):
+                  print(f"{'':30s} recurse to eval arg{argc} ...")
+                  arg, i = self.expr_eval(e, i+1)
+                  stack.append(arg)
+                  print(f"{'':30s} return with arg{argc} = {arg}\n  bo={bo} i={i} ntoks={len(e.toks)}\n")
+                  Gcode.show_stack(e, stack, brain, i)
+               kind = 'NUMBER'
+           else:
+               raise Exception(f'unknown tok type in expression at line:{t.lineno} column:{t.column} got {kind}')
+               brain.append(t)
+
+           # doctor, can we operate?
+           if kind != 'NUMBER':
+               continue
+
+           while True:
+               Gcode.show_stack(e, stack, brain)
+               if len(brain) == 0:
+                   # doctor cannot be trusted
+                   break
+
+               #if len(stack) - bo - brain[-1].arity < 0:
+               if len(stack) - self.arity[brain[-1].type] < 0:
+                   # not enough numbers on the stack
+                   break
+
+               print("at the end?", "stacklen=", len(stack), "i=", i, "ntoks=", len(e.toks), "bo=",bo)
+               
+               # maybe, if we are at the end
+               #print("at the end?", len(stack), brain[-1].arity, len(brain), i)
+               #print("at the end?", len(stack) - brain[-1].arity == 0)
+               #print("at the end?", len(brain) == 1)
+               #print("at the end?", i == len(e.toks) -1)
+               #if (len(stack) - brain[-1].arity == 0) and (len(brain) == 1) and (i == len(e.toks)-1):
+               if (len(stack) - self.arity[brain[-1].type] == 0) and (len(brain) == 1) and (i == len(e.toks)-1):
+                   value = Gcode.stack_op(stack, brain.pop().value)
+                   Gcode.show_stack(e, stack, brain)
+                   continue
+
+               # brain is not empty. stack has more than arity values.
+               #print("   braintop:", brain[-1])
+               #print("   next tok:", e.toks[i+1])
+               #print(brain[-1].precedence,  ">=", e.toks[i+1].precedence, "?")
+               #if brain[-1].precedence >= e.toks[i+1].precedence:
+               if not e.toks[i+1].value in self.precedence:
+                   print("   following tok is not sticky")
+                   value = Gcode.stack_op(stack, brain.pop().value)
+                   Gcode.show_stack(e, stack, brain)
+                   continue
+
+               if self.precedence[brain[-1].value] >= self.precedence[e.toks[i+1].value]:
+                   print("   following is stcky we have more stick")
+                   value = Gcode.stack_op(stack, brain.pop().value)
+                   Gcode.show_stack(e, stack, brain)
+                   continue
+               break
+
+           continue
+           Gcode.show_stack(e, stack, brain)
+           raise Exception(f'should be unreachable. bad doctor. fix your algorithm')
+           break
+
+    #staticmethod
+    def show_stack(e, stack, brain, i=None):
+        print('expr_eval:', Gcode.reconstruct(e))
+        print("stack:",  stack)
+        for b in brain: print("brain:", b)
+
+    #staticmethod
+    def reconstruct(thing):
+        s = ''
+        if type(thing) == Expr:
+            for t in thing.toks:
+                s = s + ' ' + str(t.value)
+            return s
+
+        elif type(thing) == Assign:
+            return reconstruct_code(thing.name) + '=' + reconstruct_code(thing.expr)
+        elif type(thing) == int:
+            return str(thing)
+        elif type(thing) == float:
+            return str(thing)
+        else:
+            raise Exception(f' do not know about thing: {type(thing)}')
+
+
+    def expr_eval_not(self, state=None, stack=None, toks=None):
+        ''' recursive expression evaluator with shared state '''
+        if state == None:
+            if toks == None or len(toks) == 0:
+                return 0
+
+            state = dict()
+            state['toki'] = 0
+            stack = list()
+
+            return self.expr_eval(state, stack, toks)
+
         s = ''
         for t in toks:
             type, value, prec = t
@@ -257,8 +464,10 @@ class Gcode():
 
     @staticmethod
     def stack_op(stack, op):
+        # atan2 is ternary in the gcode language
+        # we get atan2( y, '/', x)
         if op == '+':      stack.append( stack.pop() + stack.pop() )
-        elif op == '-':    stack.append( stack.pop() - stack.pop() )
+        elif op == '-':    stack.append( stack.pop(-2) - stack.pop() )
         elif op == '*':    stack.append( stack.pop() * stack.pop() )
         elif op == '/':    stack.append( stack.pop(-2) / stack.pop() )
         elif op == '**':   stack.append( math.pow(stack.pop(-2), stack.pop()) )
@@ -266,12 +475,19 @@ class Gcode():
         elif op == 'OR':   stack.append( bool(stack.pop()) or bool(stack.pop()) )
         elif op == 'AND':  stack.append( bool(stack.pop()) and bool(stack.pop()) )
         elif op == 'XOR':  stack.append( bool(stack.pop()) ^ bool(stack.pop()) )
-        elif op == 'SIN':  stack.append( math.sin(stack.pop()) )
-        elif op == 'COS':  stack.append( math.cos(stack.pop()) )
-        elif op == 'TAN':  stack.append( math.tan(stack.pop()) )
-        elif op == 'ASIN': stack.append( math.asin(stack.pop()) )
-        elif op == 'ACOS': stack.append( math.acos(stack.pop()) )
-        elif op == 'ATAN': stack.append( math.atan2(stack.pop(-2) / stack.pop()) )
+        elif op == 'SIN':  stack.append( math.sin(stack.pop()*math.pi/180) )
+        elif op == 'COS':  stack.append( math.cos(stack.pop()*math.pi/180) )
+        elif op == 'TAN':  stack.append( math.tan(stack.pop()*math.pi/180) )
+        elif op == 'ASIN': stack.append( math.asin(stack.pop())*180/math.pi )
+        elif op == 'ACOS': stack.append( math.acos(stack.pop())*180/math.pi )
+        elif op == 'ATAN': 
+           x = stack.pop()
+           ignore = stack.pop()
+           y = stack.pop()
+           print("atan" , y, x)
+           stack.append( math.atan2(y,x) * 180 / math.pi )
+           print("atan" , y, x, '=', stack[-1])
+           #stack.append( math.atan2(stack.pop(-3) / stack.pop()) * 180 / math.pi )
         elif op == 'FUP':  stack.append( ceil(stack.pop()) )
         elif op == 'FIX':  stack.append( floor(stack.pop()) )
         elif op == 'ABS':  stack.append( abs(stack.pop()) )
@@ -355,6 +571,11 @@ class Gcode():
         #print("    collect line number", lineno)
 
         while True:
+            # Ken, hope that we are done
+            print("top of loop. tok=", tok)
+            if tok.lineno != lineno:
+                break
+
             # each branch below should deliver a fresh token here
             # print(f'  {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
             if tok.type == 'word':
@@ -372,22 +593,26 @@ class Gcode():
                     if word in codes:
                         self.warn.append(f'line: {lineno}: multiple codes of same type not allowed for {word}')
                     codes[word] = value
+                continue
 
             elif tok.type == 'POINTER':
                 value, tok = self.collect_assignment(tokgen, tok)
+                print('value=', type(value), value)
+                continue
 
             elif 'COM' in tok.type:
                 tok = next(tokgen, self.default_tok)
+                continue
 
             elif tok.type == 'LINENO':
                 tok = next(tokgen, self.default_tok)
+                continue
 
-            # Ken, hope that we are done
-            if tok.lineno != lineno:
-                break
-
+            print("bottom of loop. tok=", tok)
+            # blame it on the gcode
+            raise Exception(f'line:{lineno} column:{tok.column}  invalid syntax {tok.type}, value:{tok.value}')
             # still here? we mssed up
-            #raise Exception(f'line: {lineno}: unhandled token type, {tok.type}, value:{tok.value}')
+            raise Exception(f'line: {lineno}: unhandled token type, {tok.type}, value:{tok.value}')
 
         return codes, tok
 
@@ -401,7 +626,7 @@ class Gcode():
 
         # variable access is always indirect.  #address, or ##adress
         name = list()
-        name.append([tok.type, tok.value, tok.precedence])
+        name.append(tok)
         while True:
             tok = next(tokgen, self.default_tok)   # should be assigment op
             if tok.type == 'ASSIGN':
@@ -410,51 +635,89 @@ class Gcode():
             if tok.lineno != lineno:
                 raise Exception(f'line: {lineno-1}: found EOL while looking for "=". Got {name}')
 
-            name.append([tok.type, tok.value, tok.precedence])
+            name.append(tok)
 
         tok = next(tokgen, self.default_tok)   # should be expression
         value, tok = self.collect_expression(tokgen, tok)
 
-        return [name, value], tok
+        return Assign(name, value), tok
 
 
     def collect_expression(self, tokgen, tok):
+        # expressions are always bound by [ ]
+        # those are not included here ... actually need them for function arg parsing
         lineno = tok.lineno
         #print(f'{"":20s} epression   {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
 
         if tok.type == 'NUMBER':
-            expr = tok.value
+            val = tok.value
             tok = next(tokgen, self.default_tok)
             #print(f'{"":20s} epression   {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
             if tok.type == 'word' or tok.lineno != lineno:
                 # all good, no expr to parse
                 #print(f'{"":20s} epression  retruning a number: {expr}')
-                return expr, tok
+                return val, tok
 
-        # collect expr toks in a list 
-        expr = list()
-        expr.append([tok.type, tok.value, tok.precedence])
+        # collect expr toks in a list. do not include the opening [
+        e = list()
+        e.append(tok)
+        bo = 1
         while True:
             tok = next(tokgen, self.default_tok)
             #print(f'{"":20s} epression   {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
-            if tok.type == 'word':
+
+            if tok.type == 'BO':
+                bo += 1
+
+            elif tok.type == 'BC':
+                bo -= 1
+                if bo == 0:
+                   e.append(tok)
+                   break
+                # stiil in the expr 
+
+            elif tok.type == 'word':
                 break
 
-            if 'COM' in tok.type:
+            elif 'COM' in tok.type:
                 continue
 
-            if tok.lineno != lineno:
+            elif tok.lineno != lineno:
                 break
 
             # still here?
-            #expr += str(tok.value)
-            expr.append([tok.type, tok.value, tok.precedence])
+            e.append(tok)
 
-        return expr, tok
+        #  last tok should have been a ]
+        if tok.type == 'BC':
+            # fresh one for caller
+            tok = next(tokgen, self.default_tok)
+        else:
+            raise Exception(f'expression is missing closing "]":' + Gcode.where(tok))
 
+        # type it for later
+        return Expr(e), tok
+
+    @staticmethod
+    def where(tok):
+        return f'line:{tok.lineno} column:{tok.column} "{tok.value}"'
+ 
+
+    def parse_expr(self, gcode: bytes):
+        " For testing expression parsing"
+        # prepend 'X' and wrap in '[ ]' to make this valid gcode
+        gcode = b'x[' + gcode + b']'
+        gcode = gcode.decode(encoding='utf-8').upper()
+
+        self.warn = []
+        tokgen = gcode_tokenize(gcode)
+        tok = next(tokgen, self.default_tok)
+        codes, tok = self.collect_line(tokgen, tok)
+        print(f'line  {codes}') 
+        val, i = self.expr_eval(e = codes['X'])
+        return float(val)
 
     def parse_gcode(self, gcode: bytes):
-        self.lineno = 0
         self.markstart = None
         self.markstop = None
         self.warn = []
@@ -570,7 +833,22 @@ if __name__ == '__main__':
 
     Gcode.stacktest()
 
-    Gcode().parse_gcode(b'x [1 + 2 * 3 - 4 / 5] (x should be 6.2)')
+    ep = lambda e: Gcode(debug=False).parse_expr(e)
+    close = lambda e, want: (1 - Gcode(debug=False).parse_expr(e) / want) < 1e-6
+
+    assert( ep(b'1') == 1)
+    assert( ep(b'1+2') == 3)
+    assert( ep(b'[1 + 2 * 3 - 4 / 5]') == 6.2)
+    assert( ep(b'15 MOD 4.0') == 3)
+    assert( ep(b'0 XOR 0') == 0)
+    assert( ep(b'0 XOR 1') == 1)
+    assert( ep(b'1 XOR 1') == 0)
+ 
+    assert( close( b'2**3', 8.0 ))
+    assert( close( b'sin[30]', 0.5 ))
+    assert( close( b'sqrt[3]', 1.732051 ))
+    assert( close( b'atan[1.7321][1][1.0]', 60.0 ))
+    assert( close( b'atan[1.7321]/[1.0]', 60.0 ))
 
     exit(0)
 

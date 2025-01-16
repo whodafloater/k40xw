@@ -35,14 +35,8 @@ class FuncCall(NamedTuple):
     name: Token
     args: list[Token|Strip]
 
-# FIXME ? loosen the restiction of [] surounding expressions
-# this was based in old function arg processing before the FuncCall type exsisted
-
 class Expr(NamedTuple):
     toks: list[Token|FuncCall]
-
-class PtrDeRef(NamedTuple):
-    toks: Strip|Expr
 
 class Assign(NamedTuple):
     name: Strip
@@ -90,7 +84,7 @@ class Gcode():
 
         token_info = Gcode.token_info()
         #print("token_info:", token_info)
-        
+
         s.arity = dict()
         s.arity['unary_op'] = 1
         s.arity['binary_op'] = 2
@@ -166,12 +160,16 @@ class Gcode():
         self.warn = []
         self.paths = list()
         self.mem = dict()
+        self.marks = list()
+        self.lineno = 0
+        self.logger = None
 
         self.X = 0
         self.Y = 0
         self.Z = 0
         self.S = 0
         self.F = 0
+
 
     #staticmethod
     def token_info():
@@ -214,9 +212,13 @@ class Gcode():
                 'funcs' : funcs
                }
 
+
     #staticmethod
-    def tokenize(code):
+    def tokenize(code, line_count = None, col_count = None, logger = None):
         """G-Code tokenizer
+
+           line_count - inflences the lineno field in Tokens
+           col_count -  inflences the column field in Tokens
 
            Expressions are delimited with [] and the unary function names
            Binary math operators:  + - * / OR XOR AND MOD **
@@ -271,19 +273,27 @@ class Gcode():
             ('SKIP',     r'[ \t]+'),       # Skip over spaces and tabs
             ('BO',       r'\['),           # expression
             ('BC',       r'\]'),           # expression
-#            ('POINTER',  r'#'),            # pointer
             ('RADIX',    r'\.'),           # decimal point get it own token
             ('MISMATCH', r'.'),            # Any other character
         ]
         tok_regex = '|'.join('(?P<%s>%s)' % pair for pair in token_specification)
         if debug_tok: print("regex", tok_regex)
+
         line_num = 1
         line_start = 0
+
+        if line_count != None:
+            line_num = line_count + 1
+
+        if col_count != None:
+            line_start = col_count
+
         for mo in re.finditer(tok_regex, code):
             kind = mo.lastgroup
             value = mo.group()
             column = mo.start() - line_start
 
+            if logger != None: logger(kind, value, line_num, column)
             if debug_tok: print(f'match: col:{column:2d}    kind:{kind:s}    value:{value}')
 
             # Letter codes and function names get munged together by the ID
@@ -309,7 +319,7 @@ class Gcode():
                     kind = 'ID'
                     value = func
                     column += 1
-    
+
             if kind == 'NUMBER' or kind == 'NUMBER2':
                 value = float(value) if '.' in value else int(value)
 
@@ -331,14 +341,13 @@ class Gcode():
             elif kind == 'ID' and value in ternary_fn:
                 kind = 'ternary_fn'
 
-            elif kind == 'NEWLINE':
+            elif kind == 'NEWLINE' or kind == 'MARK':
                 line_start = mo.end()
                 line_num += 1
-                continue
 
-            elif kind == 'MARK':
-                line_start = mo.end()
-                line_num += 1
+                if kind == 'MARK':
+                    yield Token(kind, value, line_num, column)
+
                 continue
 
             elif kind == 'SKIP':
@@ -390,6 +399,7 @@ class Gcode():
 
         if 'X' in codes:
             self.x = self.expr_eval(codes['X'])
+            self.mem['x'] = self.x
             print(f'   X = {self.x}')
 
         if 'assigns' in codes:
@@ -400,55 +410,19 @@ class Gcode():
                     raise Exception(f'Assignment. rhs does not have "#": ' + Gcode.where(t))
                 rhs = self.expr_eval(a.name)
                 lhs = self.expr_eval(a.expr)
+                print("assign:", "rhs=", rhs, "lhs=", lhs)
                 self.mem[rhs] = lhs
 
         print("mem:")
         for a in self.mem:
             print("    ", a, self.mem[a])
 
-        for c in codes:
-            print(c)
-            if len(c) > 1:
-                for b in c:
-                   print("   ", b)
-
-        if 'X' in codes:
-           if type(codes['X']) == Expr:
-               for c in codes['X']:
-                   print(c)
-               pass
-               #self.expr_eval(e = codes['X'])
 
     def expr_show(self, e:Expr = None):
-        #if e == None: return s + 'None\n'
-        #if type(e) != Expr:
-        #    return s + 'not an Expr:' + str(e) + '\n'
-
-        #if len(e.toks) == 0:
-        #    return s + 'length is 0\n'
-
         print('\n\n--- expr_show ---')
-        #s = Gcode.reconstruct(e)
-        #print(s)
-
-
         s = Gcode.reconstruct(e)
         print(s)
-
-#        for ts in e:
-#            for t in ts:
-#                if type(t) == Token:
-#                    print(f'{"":4s} line:{t.lineno:4d} col:{t.column:2d} {t.type:20s}  {t.value}')
-#                elif type(t) == FuncCall:
-#                    print(f'{"":4s} FuncCall  {t.name}')
-
         print('--- expr_show end---')
-
-        #for t in e:
-        #    s = s + '\n' f' {t.type} {t.value} '
-
-        #print(s)
-
         return
 
 
@@ -523,8 +497,10 @@ class Gcode():
                    if type(t.args[argi]) == Expr:
                        arg, __x = self._expr_eval(t.args[argi])
                        stack.append(arg)
+                       a_val = len(stack)-1
                    elif type(t.args[argi]) == Token:
                        stack.append(t.args[argi].value)
+                       a_val = len(stack)-1
 
                Gcode.show_stack(e, stack, brain)
                # then fall thru to operate on them
@@ -562,6 +538,8 @@ class Gcode():
            elif t.type == 'binary_op':
                # When to convert a binary_op to a unary_op
                #     A number with a leading + or -
+               #     [ -1 + 1 ]  = 0
+               #     [ 1 --1 ]   = 2
                if a_val == '?':
                   if t.value == '-':
                       t = Token('unary_op', 'CHS', t.lineno, t.column)
@@ -569,9 +547,12 @@ class Gcode():
                       t = Token('unary_op', 'IDENTITY', t.lineno, t.column)
                   else:
                       raise Exception(f'do not know how to convert binary_op to unary_op: ' + Gcode.where(t))
- 
-               brain.append(t)
-               continue
+                  brain.append(t)
+                  continue
+               else:
+                  brain.append(t)
+                  a_val = '?'   # pushed a binary so previos a val is claimed
+                  continue
 
            else:
                raise Exception(f'unknown tok type in expression {t.type}, {t.value} at :' + Gcode.where(t))
@@ -632,6 +613,11 @@ class Gcode():
             for a in thing.args:
                 f = f + Gcode.reconstruct(a)
             return f
+        elif type(thing) == Strip:
+            f = ''
+            for a in thing.toks:
+                f = f + Gcode.reconstruct(a)
+            return f
         elif type(thing) == Assign:
             return Gcode.reconstruct(thing.name) + '=' + Gcode.reconstruct(thing.expr)
         elif type(thing) == Token:
@@ -652,8 +638,14 @@ class Gcode():
         elif op == '/':    stack.append( stack.pop(-2) / stack.pop() )
         elif op == '**':   stack.append( math.pow(stack.pop(-2), stack.pop()) )
         elif op == 'MOD':  stack.append( int(stack.pop(-2)) % int(stack.pop()) )
-        elif op == 'OR':   stack.append( bool(stack.pop()) or bool(stack.pop()) )
-        elif op == 'AND':  stack.append( bool(stack.pop()) and bool(stack.pop()) )
+        elif op == 'OR':
+           a = stack.pop()  # make sure we get two pops
+           b = stack.pop()
+           stack.append( bool(a) or bool(b) )
+        elif op == 'AND':
+           a = stack.pop()  # make sure we get two pops
+           b = stack.pop()
+           stack.append( bool(a) and bool(b) )
         elif op == 'XOR':  stack.append( bool(stack.pop()) ^ bool(stack.pop()) )
         elif op == 'SIN':  stack.append( math.sin(stack.pop()*math.pi/180) )
         elif op == 'COS':  stack.append( math.cos(stack.pop()*math.pi/180) )
@@ -668,10 +660,10 @@ class Gcode():
            stack.append( math.atan2(y,x) * 180 / math.pi )
            print("atan" , y, x, '=', stack[-1])
            #stack.append( math.atan2(stack.pop(-3) / stack.pop()) * 180 / math.pi )
-        elif op == 'FUP':  stack.append( ceil(stack.pop()) )
-        elif op == 'FIX':  stack.append( floor(stack.pop()) )
+        elif op == 'FUP':  stack.append( math.ceil(stack.pop()) )
+        elif op == 'FIX':  stack.append( math.floor(stack.pop()) )
         elif op == 'ABS':  stack.append( abs(stack.pop()) )
-        elif op == 'EXP':  stack.append( math.exp(stack.pop(-2), stack.pop()))
+        elif op == 'EXP':  stack.append( math.exp(stack.pop()))
         elif op == 'LN':   stack.append( math.log(stack.pop()))
         elif op == 'SQRT':  stack.append( math.sqrt(stack.pop()) )
         elif op == 'ROUND': stack.append( round(stack.pop()) )
@@ -688,7 +680,6 @@ class Gcode():
         else:
             self.mem[addr] = 0
             return 0
-
 
 
     def stacktest(self):
@@ -717,24 +708,27 @@ class Gcode():
         stack.append(-0.499)
         x = self.stack_op(stack, 'ROUND')
         assert(x == 0)
-        
+
         stack.append(-0.501)
         x = self.stack_op(stack, 'ROUND')
         assert(x == -1)
-        
+
         stack.append(2.44)
         x = self.stack_op(stack, 'ROUND')
         assert(x == 2)
-        
+
         stack.append(9.975)
         x = self.stack_op(stack, 'ROUND')
         assert(x == 10)
-        
 
-    def program_init(self):
+
+    def program_init(self, logger = None):
+        self.logger = logger
         self.markstart = None
         self.markstop = None
         self.warn = []
+        self.marks = list()
+        self.lineno = 0
 
 
     def program_finish(self):
@@ -746,6 +740,7 @@ class Gcode():
 
     def list_tokens(self, tokgen):
         print("-------- list_tokens() ----------")
+        self.lineno += 1
         tok = next(tokgen, self.default_tok)
         if tok == self.default_tok:
             return
@@ -818,8 +813,8 @@ class Gcode():
                    print('\n\n\nfunc call:', value, '\n\n\n')
                 elif tok.type == "BO":
                    value, tok = self.collect_bexpression(tokgen, tok)
-                elif tok.type == 'POINTER':
-                   value, tok = self.collect_ptrderef(tokgen, tok)
+                elif tok.value in self.expr_openers or tok.type in self.expr_openers:
+                   value, tok = self.collect_expression(tokgen, tok)
                 elif "_fn" in tok.type:
                    value, tok = self.collect_function_call(tokgen, tok)
                    print('\n\n\nfunc call:', value, '\n\n\n')
@@ -854,6 +849,11 @@ class Gcode():
                 tok = next(tokgen, self.default_tok)
                 continue
 
+            elif tok.type == 'MARK':
+                self.marks.append(tok)
+                tok = next(tokgen, self.default_tok)
+                continue
+
             elif tok.type == 'LINENO':
                 tok = next(tokgen, self.default_tok)
                 continue
@@ -865,42 +865,6 @@ class Gcode():
             raise Exception(f'line: {lineno}: unhandled token type, {tok.type}, value:{tok.value}')
 
         return codes, tok
-
-
-    def collect_assignment(self, tokgen, tok):
-        lineno = tok.lineno
-        print(f'{"":20s} assignment start:' + tokenstr(tok))
-
-        if tok.type != 'POINTER':
-            raise Exception(f'line: {lineno}: Parser Error. Got here by mstake. token type:{tok.type}, value:{tok.value}')
-
-        varname, tok = self.collect_ptrderef(tokgen, tok)
-
-#        # variable access is always indirect.  #address, or ##adress
-#        name = list()
-#        name.append(tok)
-#        while True:
-#            tok = next(tokgen, self.default_tok)   # should be assigment op
-#            if tok.type == 'ASSIGN':
-#                break
-#
-#            if tok.lineno != lineno:
-#                raise Exception(f'line: {lineno-1}: found EOL while looking for "=". Got {name}')
-#
-#            name.append(tok)
-
-        if tok.type != 'ASSIGN':
-            raise Exception(f'Expected "=" :' + Gcode.where(tok))
-
-        tok = next(tokgen, self.default_tok)   # should be expression
-        if tok.type == 'BO':
-            value, tok = self.collect_bexpression(tokgen, tok)
-        else:
-            value = tok
-            tok = next(tokgen, self.default_tok) # must feed the caller
-
-        return Assign(varname, value), tok
-
 
     def collect_function_call(self, tokgen, tok, prefix=''):
         lineno = tok.lineno
@@ -948,42 +912,44 @@ class Gcode():
 
         return FuncCall(func, args), tok
 
-    def collect_ptrderef(self, tokgen, tok):
-        lineno = tok.lineno
-        print(f'{"":20s} pointer   start:' + tokenstr(tok))
-        tok = next(tokgen, self.default_tok)
-
-        if tok.type == 'BO':
-            value, tok = self.collect_bexpression(tokgen, tok)
-        else:
-            print(f'{"":20s} pointer  address:' + tokenstr(tok))
-            value = tok
-            tok = next(tokgen, self.default_tok)
-
-        return PtrDeRef(value), tok
 
     def collect_expression(self, tokgen, tok):
+        """Permissive expression collector
+        Terminators defined by self.expr_terminators[]
+
+        An illegal postfix op will also terminate an expression
+        rather than flag an error.
+        This allows parsing:
+
+        """
+        break_on_unary = False
         lineno = tok.lineno
         print(f'{"":20s} epression start:' + tokenstr(tok))
         if tok.type == 'BO':
             return self.collect_bexpression(tokgen, tok)
         e = list()
-        e.append(tok) # first token is the "["
-        tok = next(tokgen, self.default_tok)
         while True:
             if tok.value in self.expr_terminators:
                 break
-            if tok.type in self.expr_terminators:
+            elif tok.type in self.expr_terminators:
                 break
             elif tok.lineno != lineno:
+                break
+            elif 'COM' in tok.type:
+                break
+            elif tok.type == 'unary_op' and break_on_unary:
                 break
             elif "_fn" in tok.type:
                 fncall, tok = self.collect_function_call(tokgen, tok)
                 e.append(fncall)
+                break_on_unary = True
                 continue
-            elif 'COM' in tok.type:
-                tok = next(tokgen, self.default_tok)
-                continue
+
+            if tok.type == 'binary_op' or tok.type == 'unary_op':
+                break_on_unary = False
+            else:
+                break_on_unary = True
+
             print(f'{"":20s} epression      :' + tokenstr(tok))
             e.append(tok) # first token is the "["
             tok = next(tokgen, self.default_tok)
@@ -1021,6 +987,12 @@ class Gcode():
                    break
                 # stiil in the expr 
 
+            # hack to handle inverse trig funcs
+            elif tok.value == "A":
+                fncall, tok = self.collect_function_call(tokgen, tok, prefix='A')
+                e.append(fncall)
+                continue
+
             elif "_fn" in tok.type:
                 fncall, tok = self.collect_function_call(tokgen, tok)
                 e.append(fncall)
@@ -1052,12 +1024,13 @@ class Gcode():
 
         return Expr(e), tok
 
+
     @staticmethod
     def where(tok):
         return f'line:{tok.lineno} column:{tok.column} "{tok.value}"'
  
 
-    def parse_expr(self, gcode: bytes):
+    def parse_expr(self, gcode: bytes, logger = None):
         " For testing expression parsing"
         # prepend 'X' to make this valid gcode
         gcode = b'x' + gcode
@@ -1066,7 +1039,7 @@ class Gcode():
         print(f'\nparse_expr(): input line: {gcode}') 
         self.warn = []
 
-        tokgen = Gcode.tokenize(gcode)
+        tokgen = Gcode.tokenize(gcode, logger = logger)
         self.list_tokens(tokgen)
 
         tokgen = Gcode.tokenize(gcode)
@@ -1083,10 +1056,16 @@ class Gcode():
 
         return float(val)
 
-    def parse_inc(self, gcode: bytes):
+
+    def parse_inc(self, gcode: bytes, logger = None):
+        if logger != None: logger = logger
+        else: logger = self.logger
+
         gcode = gcode.decode(encoding='utf-8').upper()
-        tokgen = Gcode.tokenize(gcode)
-        self.process_tokens(tokgen)
+        tokgen = Gcode.tokenize(gcode, line_count = self.lineno, logger = logger)
+        self.lineno += 1
+        self.process_line(tokgen)
+
 
     def parse_gcode(self, gcode: bytes):
         self.program_init()
@@ -1103,6 +1082,7 @@ class Gcode():
     def print_warn(self):
         for i in self.warn:
             print(f'WARN: {i}')
+
 
     def __not_implemented(self, com):
         self.warn.append(f'Gcode not implemented: lineno:{com["lineno"]} line:{com["line"]}')
@@ -1199,10 +1179,13 @@ class gcode_test:
     def __init__(self, debug=False) -> None:
         self.gc = Gcode(debug=False)
 
+        self.lineno = 0
+        self.tokstr = ''
+
     def test_stack_op(self):
         self.gc.stacktest()
 
-    def test_expr(self):
+    def test_expr_parse(self):
         ep = lambda e: self.gc.parse_expr(e)
         close = lambda e, want, lim=1e-6: abs(1 - float(self.gc.parse_expr(e)) / want) < lim
         error = lambda e, want: abs(1 - float(self.gc.parse_expr(e)) / want)
@@ -1232,32 +1215,183 @@ class gcode_test:
         assert( close( b'sqrt[3]', 1.732051 ))
         assert( close( b' atan[1.7321]/[1.0]', 60.0, 1e-3 ))
 
+    def test_expr(self):
+        close = lambda val, want, lim=1e-6: abs(1 - float(val) / want) < lim
+        exact = lambda val, want: val == want
+        try:
+            self.gc.program_init(logger = self.toklog)
+            p = self.gc.parse_inc
+
+            p( b'n0020 x [1 + 2] (x should be 3) ')
+            assert(self.gc.x == 3)
+            p( b'n0030 x [1 - 2] (x should be -1) ')
+            assert(self.gc.x == -1)
+            p( b'n0040 x [1 --3] (x should be 4) ')
+            assert(self.gc.x == 4)
+            p( b'n0050 x [2/5] (x should be 0.40) ')
+            assert(self.gc.x == 0.4)
+            p( b'n0060 x [3.0 * 5] (x should be 15) ')
+            assert(self.gc.x == 15)
+            p( b'n0070 x [0 OR 0] (x should be 0) ')
+            assert(self.gc.x == 0)
+            p( b'n0080 x [0 OR 1] (x should be 1) ')
+            assert(self.gc.x == 1)
+            p( b'n0090 x [2 or 2] (x should be 1) ')
+            assert(self.gc.x == 1)
+            p( b'n0100 x [0 AND 0] (x should be 0) ')
+            assert(self.gc.x == 0)
+            p( b'n0110 x [0 AND 1] (x should be 0) ')
+            assert(self.gc.x == 0)
+            p( b'n0120 x [2 and 2] (x should be 1) ')
+            assert(self.gc.x == 1)
+            p( b'n0130 x [0 XOR 0] (x should be 0) ')
+            assert(self.gc.x == 0)
+            p( b'n0140 x [0 XOR 1] (x should be 1) ')
+            assert(self.gc.x == 1)
+            p( b'n0150 x [2 xor 2] (x should be 0) ')
+            assert(self.gc.x == 0)
+            p( b'n0160 x [15 MOD 4.0] (x should be 3) ')
+            assert(self.gc.x == 3)
+            p( b'n0170 x [1 + 2 * 3 - 4 / 5] (x should be 6.2) ')
+            assert(self.gc.x == 6.2)
+
+            p( b'n0180 x sin[30] (x should be 0.5) ')
+            assert( close(self.gc.x,  0.5) )
+
+            p( b'n0190 x cos[0.0] (x should be 1.0) ')
+            assert( close(self.gc.x,  1.0) )
+
+            p( b'n0200 x tan[60.0] (x should be 1.7321) ')
+            assert( close(self.gc.x,  1.7321, 1e-4) )
+
+            p( b'n0210 x sqrt[3] (x should be 1.7321) ')
+            assert( close(self.gc.x,  1.7321, 1e-4) )
+
+            p( b'n0220 x atan[1.7321]/[1.0] (x should be 60.0) ')
+            assert( close(self.gc.x,  60.0, 1e-4) )
+
+            p( b'n0230 x asin[1.0] (x should be 90.0) ')
+            assert( close(self.gc.x,  90.0, 1e-4) )
+
+            p( b'n0240 x acos[0.707107] (x should be 45.0000) ')
+            assert( close(self.gc.x,  45.0, 1e-4) )
+
+            p( b'n0250 x abs[20.0] (x should be 20) ')
+            assert( close(self.gc.x,  20) )
+
+            p( b'n0260 x abs[-1.23] (x should be 1.23) ')
+            assert( close(self.gc.x,  1.23) )
+
+            p( b'n0270 x round[-0.499] (x should be 0) ')
+            assert( exact(self.gc.x,  0) )
+
+            p( b'n0280 x round[-0.5001] (x should be -1.0) ')
+            assert( exact(self.gc.x,  -1.0) )
+
+            p( b'n0290 x round[2.444] (x should be 2) ')
+            assert( exact(self.gc.x,  2) )
+
+            p( b'n0300 x round[9.975] (x should be 10) ')
+            assert( exact(self.gc.x,  10) )
+
+            p( b'n0310 x fix[-0.499] (x should be -1.0) ')
+            assert( exact(self.gc.x,  -1.0) )
+
+            p( b'n0320 x fix[-0.5001] (x should be -1.0) ')
+            assert( exact(self.gc.x,  -1.0) )
+
+            p( b'n0330 x fix[2.444] (x should be 2) ')
+            assert( exact(self.gc.x,  2) )
+
+            p( b'n0340 x fix[9.975] (x should be 9) ')
+            assert( exact(self.gc.x,  9) )
+
+            p( b'n0350 x fup[-0.499] (x should be 0.0) ')
+            assert( exact(self.gc.x,  0.0) )
+
+            p( b'n0360 x fup[-0.5001] (x should be 0.0) ')
+            assert( exact(self.gc.x,  0.0) )
+
+            p( b'n0370 x fup[2.444] (x should be 3) ')
+            assert( exact(self.gc.x,  3) )
+
+            p( b'n0380 x fup[9.975] (x should be 10) ')
+            assert( close(self.gc.x,  10, 1e-4) )
+
+            p( b'n0390 x exp[2.3026] (x should be 10) ')
+            assert( close(self.gc.x,  10, 1e-4) )
+
+            p( b'n0400 x ln[10.0] (x should be 2.3026) ')
+            assert( close(self.gc.x,  2.3026, 1e-4) )
+
+
+
+        except Exception as e:
+            print("\ngot to here:", "line:", self.lineno, "toks:", self.tokstr + "\n")
+            raise(e)
+
     def test_assign(self):
-        pg = lambda e: self.gc.parse_gcode(e)
+        #pg = lambda e: self.gc.parse_gcode(e)
         #pg(b'n0040 g1 z-0.5 (start H)')
         #pg(b'n0190 g3 x13.5 y0 i-2.5')
         #pg(b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)')
 
-    def test_inc(self):
-       self.gc.program_init()
-       self.gc.parse_inc(b'f[123*2]')
-       self.gc.parse_inc(b'x654')
-       self.gc.parse_inc(b'#1 = 3.14')
-       self.gc.parse_inc(b'#2 = #1*2')
+        try:
+            self.gc.program_init(logger = self.toklog)
+            p = self.gc.parse_inc
 
-       assert(self.gc.f == 246)
-       assert(self.gc.x == 654)
+            p( b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)' )
+            assert(self.gc.x == 8.0)
+            assert(self.gc.mem[1] == 2.0)
+
+            p( b'n0420 ##1 = 0.375 (#1 is 2, so parameter 2 is set to 0.375)' )
+            assert(self.gc.mem[2] == 0.375)
+
+            p( b'n0430 x #2 (x should be 0.375) #3=7.0' )
+            assert(self.gc.x == 0.375)
+
+            p( b'n0440 #3=5.0 x #3 (parameters set in parallel, so x should be 7, not 5)' )
+            assert(self.gc.x == 7.0)
+
+            p( b'n0450 x #3 #3=1.1 (parameters set in parallel, so x should be 5, not 1.1)' )
+            assert(self.gc.x == 5.0)
+
+            p( b'n0460 x [2 + asin[1/2.1+-0.345] / [atan[fix[4.4] * 2.1 * sqrt[16.8]] /[-18]]**2]' )
+            p( b'n0470 x sqrt[3**2 + 4**2] (x should be 5.0)' )
+            assert(self.gc.x == 5.0)
+
+        except Exception as e:
+            print("\ngot to here:", "line:", self.lineno, "toks:", self.tokstr + "\n")
+            raise(e)
+
+
+    def test_inc(self):
+        self.gc.program_init(logger = self.toklog)
+        self.gc.parse_inc(b'f[123*2]')
+        self.gc.parse_inc(b'x654')
+        self.gc.parse_inc(b'#1 = 3.14')
+        self.gc.parse_inc(b'#2 = #1*2')
+        assert(self.gc.f == 246)
+        assert(self.gc.x == 654)
+        self.gc.parse_inc(b'x654')
+
+    def toklog(self, kind:str, value:str, lineno:int, col:int):
+        print(f'log:  {lineno:4d} {col:2d} {kind:10s} {str(value):10s}')
+        if lineno != self.lineno:
+           self.lineno = lineno
+           self.tokstr = value
+        else:
+           self.tokstr += value
 
 if __name__ == '__main__':
-
 
     gct = gcode_test()
 
     gct.test_stack_op()
+    gct.test_expr_parse()
     gct.test_expr()
-    gct.test_assign()
     gct.test_inc()
-    exit(0)
+    gct.test_assign()
 
     import gcode_samples
 
@@ -1265,7 +1399,7 @@ if __name__ == '__main__':
                gcode_samples.gc1,
                gcode_samples.gc2,
                gcode_samples.gc_hello_world,
-#               gcode_samples.gc_expression_test
+               gcode_samples.gc_expression_test
               ]
 
     gcode = Gcode()

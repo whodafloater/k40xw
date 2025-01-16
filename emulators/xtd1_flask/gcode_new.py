@@ -358,7 +358,16 @@ class Gcode():
         #     special case: M7 and M8 may be active at the same time
         # Others, only one allowed
 
-        print("motion apply:")
+        print("motion_apply:")
+        if 'F' in codes:
+            self.f = self.expr_eval(codes['F'])
+            print(f'   F = {self.f}')
+
+        if 'X' in codes:
+            self.x = self.expr_eval(codes['X'])
+            print(f'   X = {self.x}')
+
+
         for c in codes:
             print(c)
             if len(c) > 1:
@@ -406,8 +415,15 @@ class Gcode():
 
 
     def expr_eval(self, e:Expr = None, i=None):
+        result, i = self._expr_eval(e = e, i = i)
+        return result
+    
+    def _expr_eval(self, e:Expr = None, i=None):
+
+        if self.debug: print('expr_eval:', Gcode.reconstruct(e))
         if e == None: return 0
-        if type(e) != Expr and type(e) != FuncCall: return e
+        
+        if type(e) != Expr and type(e) != FuncCall: return e, 0
 
         #if type(e) == Expr and len(e.toks) == 0:
         #    return 0
@@ -457,7 +473,7 @@ class Gcode():
                for argi in range(len(t.args)):
                    print("func arg:", argi, t.args[argi])
                    if type(t.args[argi]) == Expr:
-                       arg, __x = self.expr_eval(t.args[argi])
+                       arg, __x = self._expr_eval(t.args[argi])
                        stack.append(arg)
                    elif type(t.args[argi]) == Token:
                        stack.append(t.args[argi].value)
@@ -575,27 +591,6 @@ class Gcode():
         else:
             raise Exception(f' do not know about thing: {type(thing)}')
 
-
-    def expr_eval_not(self, state=None, stack=None, toks=None):
-        ''' recursive expression evaluator with shared state '''
-        if state == None:
-            if toks == None or len(toks) == 0:
-                return 0
-
-            state = dict()
-            state['toki'] = 0
-            stack = list()
-
-            return self.expr_eval(state, stack, toks)
-
-        s = ''
-        for t in toks:
-            type, value, prec = t
-            s = s + str(value)
-            print(t)
-        print(s)
-
-
     @staticmethod
     def stack_op(stack, op):
         # atan2 is ternary in the gcode language
@@ -676,7 +671,16 @@ class Gcode():
         
 
     def program_init(self):
-        pass
+        self.markstart = None
+        self.markstop = None
+        self.warn = []
+
+
+    def program_finish(self):
+        if self.markstart != None and self.markstop == None:
+            self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
+
+        self.print_warn()
 
 
     def list_tokens(self, tokgen):
@@ -691,6 +695,16 @@ class Gcode():
                 break
 
 
+    def process_line(self, tokgen):
+        tok = next(tokgen, self.default_tok)
+        if tok == self.default_tok:
+            return
+        if tok.type == 'MARKEND':
+            return
+        codes, tok = self.collect_line(tokgen, tok)
+        self.motion_apply(codes)
+
+
     def process_tokens(self, tokgen):
         #codes = dict()
         tok = next(tokgen, self.default_tok)
@@ -702,7 +716,7 @@ class Gcode():
         while True:
             lineno = tok.lineno
             codes, tok = self.collect_line(tokgen, tok)
-            print(f'line {lineno:4d} {codes}') 
+            print(f'process_tokens: line {lineno:4d}: {codes}') 
 
             self.motion_apply(codes)
 
@@ -971,28 +985,28 @@ class Gcode():
         self.expr_show(e = codes['X'])
 
         self.warn = []
-        val, i = self.expr_eval(e = codes['X'])
+        val = self.expr_eval(e = codes['X'])
         print(f'parse_expr(): returning: {val}') 
         self.print_warn()
 
         return float(val)
 
-    def parse_gcode(self, gcode: bytes):
-        self.markstart = None
-        self.markstop = None
-        self.warn = []
+    def parse_inc(self, gcode: bytes):
+        gcode = gcode.decode(encoding='utf-8').upper()
+        tokgen = Gcode.tokenize(gcode)
+        self.process_tokens(tokgen)
 
+    def parse_gcode(self, gcode: bytes):
+        self.program_init()
         tokgen = Gcode.tokenize(gcode.decode(encoding='utf-8').upper())
         self.list_tokens(tokgen)
+        self.program_finish()
 
         tokgen = Gcode.tokenize(gcode.decode(encoding='utf-8').upper())
         self.program_init()
         self.process_tokens(tokgen)
+        self.program_finish()
 
-        if self.markstart != None and self.markstop == None:
-            self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
-
-        self.print_warn()
 
     def print_warn(self):
         for i in self.warn:
@@ -1089,42 +1103,69 @@ class Gcode():
         pass
 
 
+class gcode_test:
+    def __init__(self, debug=False) -> None:
+        self.gc = Gcode(debug=False)
+
+    def test_stack_op(self):
+        self.gc.stacktest()
+
+    def test_expr(self):
+        ep = lambda e: self.gc.parse_expr(e)
+        close = lambda e, want, lim=1e-6: abs(1 - float(self.gc.parse_expr(e)) / want) < lim
+        error = lambda e, want: abs(1 - float(self.gc.parse_expr(e)) / want)
+
+        assert( ep(b'1') == 1)
+        assert( ep(b'[1+2]') == 3)
+
+        assert( ep(b'[1]') == 1)
+        assert( ep(b'[[1]]') == 1)
+        assert( ep(b'[.1]') == 0.1)
+        assert( ep(b'[+1]') == 1)
+        assert( ep(b'[-1]') == -1)
+        assert( ep(b'[3-2]') == 1)
+        assert( ep(b'[.11]') == 0.11)
+        assert( ep(b'[-.123]') == -0.123)
+        assert( ep(b'[1+2]') == 3)
+        assert( ep(b'[1 + 2 * 3 - 4 / 5]') == 6.2)
+        assert( ep(b'[15 MOD 4.0]') == 3)
+        assert( ep(b'[0 XOR 0]') == 0)
+        assert( ep(b'[0 XOR 1]') == 1)
+        assert( ep(b'[1 XOR 1]') == 0)
+ 
+        assert( close( b'[2**3]', 8.0 ))
+        assert( close( b'[2**3]', 8.0 ))
+        assert( close( b'[1.2+sin[30]]', 1.7 ))
+        assert( close( b'[sin[30]]', 0.5 ))
+        assert( close( b'sqrt[3]', 1.732051 ))
+        assert( close( b' atan[1.7321]/[1.0]', 60.0, 1e-3 ))
+
+    def test_assign(self):
+        pg = lambda e: self.gc.parse_gcode(e)
+        #pg(b'n0040 g1 z-0.5 (start H)')
+        #pg(b'n0190 g3 x13.5 y0 i-2.5')
+        #pg(b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)')
+
+    def test_inc(self):
+       self.gc.program_init()
+       self.gc.parse_inc(b'f[123*2]')
+       self.gc.parse_inc(b'x654')
+
+       assert(self.gc.f == 246)
+       assert(self.gc.x == 654)
+
 if __name__ == '__main__':
 
+
+    gct = gcode_test()
+
+    gct.test_stack_op()
+    gct.test_expr()
+    gct.test_assign()
+    gct.test_inc()
+    #exit(0)
+
     import gcode_samples
-
-    Gcode.stacktest()
-
-    pg = lambda e: Gcode(debug=False).parse_gcode(e)
-    ep = lambda e: Gcode(debug=False).parse_expr(e)
-    close = lambda e, want, lim=1e-6: abs(1 - float(Gcode(debug=False).parse_expr(e)) / want) < lim
-    error = lambda e, want: abs(1 - float(Gcode(debug=False).parse_expr(e)) / want)
-
-    pg(b'n0040 g1 z-0.5 (start H)')
-    pg(b'n0190 g3 x13.5 y0 i-2.5')
-    pg(b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)')
-    pg(b'n0420 ##1 = 0.375 (#1 is 2, so parameter 2 is set to 0.375)')
-
-    assert( ep(b'[1]') == 1)
-    assert( ep(b'[[1]]') == 1)
-    assert( ep(b'[.1]') == 0.1)
-    assert( ep(b'[+1]') == 1)
-    assert( ep(b'[-1]') == -1)
-    assert( ep(b'[3-2]') == 1)
-    assert( ep(b'[.11]') == 0.11)
-    assert( ep(b'[-.123]') == -0.123)
-    assert( ep(b'[1+2]') == 3)
-    assert( ep(b'[1 + 2 * 3 - 4 / 5]') == 6.2)
-    assert( ep(b'[15 MOD 4.0]') == 3)
-    assert( ep(b'[0 XOR 0]') == 0)
-    assert( ep(b'[0 XOR 1]') == 1)
-    assert( ep(b'[1 XOR 1]') == 0)
- 
-    assert( close( b'[2**3]', 8.0 ))
-    assert( close( b'[1.2+sin[30]]', 1.7 ))
-    assert( close( b'[sin[30]]', 0.5 ))
-    assert( close( b'sqrt[3]', 1.732051 ))
-    assert( close( b' atan[1.7321]/[1.0]', 60.0, 1e-3 ))
 
     samples = [
                gcode_samples.gc1,

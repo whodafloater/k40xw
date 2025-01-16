@@ -35,6 +35,9 @@ class FuncCall(NamedTuple):
     name: Token
     args: list[Token|Strip]
 
+# FIXME ? loosen the restiction of [] surounding expressions
+# this was based in old function arg processing before the FuncCall type exsisted
+
 class Expr(NamedTuple):
     toks: list[Token|FuncCall]
 
@@ -42,7 +45,7 @@ class PtrDeRef(NamedTuple):
     toks: Strip|Expr
 
 class Assign(NamedTuple):
-    name: PtrDeRef
+    name: [Expr|Strip|Token]
     expr: [Expr|Token]
 
 class CANON_UNITS(Enum):
@@ -99,6 +102,7 @@ class Gcode():
         # example: ATAN [ Y expr ] / [ X expr ]  we accept expr op expr as args
 
         s.precedence = dict()
+        s.precedence['#'] = 4
         s.precedence['**'] = 3
         s.precedence['*'] = 2
         s.precedence['/'] = 2
@@ -155,6 +159,7 @@ class Gcode():
         for kw in lettercodestr:
             lettercodes.append(kw)
 
+        unary_op = ['#']
         binary_op = ['**', '*', '/', 'MOD', '+', '-', 'OR', 'XOR', 'AND']
         unary_fn =  ['ABS', 'EXP', 'FIX', 'FUP', 'LN', 'ROUND', 'SQRT',
                      'ACOS', 'ASIN', 'COS', 'SIN', 'TAN']
@@ -178,6 +183,7 @@ class Gcode():
         # The parser will have to undo this
 
         return {'lettercodes' : lettercodes,
+                'unary_op' : unary_op,
                 'binary_op' : binary_op,
                 'unary_fn' : unary_fn,
                 'binary_fn' : binary_fn,
@@ -213,6 +219,7 @@ class Gcode():
  
         keywords = token_info['lettercodes']
         funcs = token_info['funcs']
+        unary_op = token_info['unary_op']
         binary_op = token_info['binary_op']
         unary_fn = token_info['unary_fn']
         binary_fn = token_info['binary_fn']
@@ -234,12 +241,12 @@ class Gcode():
             ('COMMENTP', r'%[^\n]+'),      # % comment, do not eat the \n
             ('COMMENT',  r'[(][^)]*[)]'),  # ( comment ), do not eat the \n
             ('ID',       r'[A-Za-z]+'),    # Identifiers
-            ('OP',       r'([*][*])|([+\-*/])'),  # Arithmetic operators
+            ('OP',       r'(#)|([*][*])|([+\-*/])'),  # Arithmetic operators
             ('NEWLINE',  r'\n'),           # Line endings
             ('SKIP',     r'[ \t]+'),       # Skip over spaces and tabs
             ('BO',       r'\['),           # expression
             ('BC',       r'\]'),           # expression
-            ('POINTER',  r'#'),            # pointer
+#            ('POINTER',  r'#'),            # pointer
             ('RADIX',    r'\.'),           # decimal point get it own token
             ('MISMATCH', r'.'),            # Any other character
         ]
@@ -286,6 +293,9 @@ class Gcode():
 
             elif (kind == 'OP' or kind == 'ID') and value in binary_op:
                 kind = 'binary_op'
+
+            elif kind == 'OP' and value in unary_op:
+                kind = 'unary_op'
 
             elif kind == 'ID' and value in unary_fn:
                 kind = 'unary_fn'
@@ -1093,6 +1103,7 @@ if __name__ == '__main__':
     pg(b'n0040 g1 z-0.5 (start H)')
     pg(b'n0190 g3 x13.5 y0 i-2.5')
     pg(b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)')
+    pg(b'n0420 ##1 = 0.375 (#1 is 2, so parameter 2 is set to 0.375)')
 
     assert( ep(b'[1]') == 1)
     assert( ep(b'[[1]]') == 1)
@@ -1101,7 +1112,7 @@ if __name__ == '__main__':
     assert( ep(b'[-1]') == -1)
     assert( ep(b'[3-2]') == 1)
     assert( ep(b'[.11]') == 0.11)
-    assert( ep(b'[-.123]') == 0.123)
+    assert( ep(b'[-.123]') == -0.123)
     assert( ep(b'[1+2]') == 3)
     assert( ep(b'[1 + 2 * 3 - 4 / 5]') == 6.2)
     assert( ep(b'[15 MOD 4.0]') == 3)

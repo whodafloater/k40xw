@@ -17,7 +17,7 @@ from enum import Enum
 # from https://docs.python.org/3/library/re.html#writing-a-tokenizer
 
 debug_tok = False
-debug_tok = True
+#debug_tok = True
 
 class Token(NamedTuple):
     type: str
@@ -146,33 +146,47 @@ class GcodeParser():
             self.machine = None
             self.mem = dict()
             self.motion_apply = self.mock_motion
+            self.mem_init()
         else:
             self.machine = machine
             self.mem = self.machine.mem
             self.motion_apply = self.machine.motion_apply
 
+    def mem_init(self):
+        self.mem['S'] = 0
+        self.mem['F'] = 0
+        self.mem['X'] = 0
+        self.mem['Y'] = 0
+        self.mem['Z'] = 0
+
     def mock_motion(self, codes):
         # For testing a stand alone parser
         # Just go though all the codes and eval them
-        print("mock motion_apply:")
-        if 'F' in codes:
-            self.f = self.expr_eval(codes['F'])
-            print(f'   F = {self.f}')
+        if self.debug: print("mock motion_apply:")
 
-        if 'X' in codes:
-            self.x = self.expr_eval(codes['X'])
-            self.mem['x'] = self.x
-            print(f'   X = {self.x}')
+        for letter in codes:
+            if letter == 'assigns': continue
+            if letter in 'GM': continue
+            #print(letter)
+            if self.debug: print(codes[letter])
+            self.mem[letter] = self.expr_eval(codes[letter])
+            print(f'   {letter} = {self.mem[letter]}')
+
+        self.S = self.mem['S']
+        self.F = self.mem['F']
+        self.X = self.mem['X']
+        self.Y = self.mem['Y']
+        self.Z = self.mem['Z']
 
         if 'assigns' in codes:
             for a in codes['assigns']:
-                print(a.name)
+                if self.debug: print(a.name)
                 t = a.name.toks.pop(0)
                 if t.value != '#':
                     raise Exception(f'Assignment. rhs does not have "#": ' + Gcode.where(t))
                 rhs = self.expr_eval(a.name)
                 lhs = self.expr_eval(a.expr)
-                print("assign:", "rhs=", rhs, "lhs=", lhs)
+                if self.debug: print("assign:", "rhs=", rhs, "lhs=", lhs)
                 self.mem[int(rhs)] = lhs
 
         print("mem:")
@@ -395,10 +409,10 @@ class GcodeParser():
                   Token('BC', ']', 0, 99),
                  ])
         elif type(e) == Strip:
-            print("Strip")
+            if self.debug: print("Strip")
             e.toks.insert(0, Token('BO', ']', 0, 0))
             e.toks.append(Token('BC', ']', 0, 99))
-            print("Strip", e)
+            if self.debug: print("Strip", e)
         elif type(e) == Token:
             return e.value, 0
         elif type(e) == int:
@@ -426,7 +440,7 @@ class GcodeParser():
             bo = 1
             # note we skip the first token. loop exits when bo back to 0
 
-        print(f'{"":20s} expr_eval  start:' + tokenstr(t))
+        if self.debug: print(f'{"":20s} expr_eval  start:' + tokenstr(t))
 
         a_val = '?'
         while True:
@@ -436,16 +450,16 @@ class GcodeParser():
                raise Exception(f'Bad expression. Eval ran out of tokens')
            t = e.toks[i]
 
-           if type(t) == Token: print(f'{"":20s} expr_eval  tok {i}:' + tokenstr(t))
+           if self.debug and type(t) == Token: print(f'{"":20s} expr_eval  tok {i}:' + tokenstr(t))
 
            if type(t) == FuncCall:
                # go get eval some args
-               GcodeParser.show_stack(e, stack, brain)
+               if self.debug: GcodeParser.show_stack(e, stack, brain)
                brain.append(t.name)
 
-               print("func name:", t.name)
+               if self.debug: print("func name:", t.name)
                for argi in range(len(t.args)):
-                   print("func arg:", argi, t.args[argi])
+                   if self.debug: print("func arg:", argi, t.args[argi])
                    if type(t.args[argi]) == Expr:
                        arg, __x = self._expr_eval(t.args[argi])
                        stack.append(arg)
@@ -454,7 +468,7 @@ class GcodeParser():
                        stack.append(t.args[argi].value)
                        a_val = len(stack)-1
 
-               GcodeParser.show_stack(e, stack, brain)
+               if self.debug: GcodeParser.show_stack(e, stack, brain)
                # then fall thru to operate on them
                pass
 
@@ -475,7 +489,7 @@ class GcodeParser():
                if bo == 0:
                    if len(stack) > 1 or len(brain) > 0:
                       self.warn.append(f' Eval finished but left items on stack. Occured at: ' + GcodeParser.where(t))
-                      GcodeParser.show_stack(e, stack, brain)
+                      if self.debug: GcodeParser.show_stack(e, stack, brain)
                    return stack[0], i
                continue
 
@@ -608,9 +622,9 @@ class GcodeParser():
            x = stack.pop()
            ignore = stack.pop()
            y = stack.pop()
-           print("atan" , y, x)
+           #print("atan" , y, x)
            stack.append( math.atan2(y,x) * 180 / math.pi )
-           print("atan" , y, x, '=', stack[-1])
+           #print("atan" , y, x, '=', stack[-1])
            #stack.append( math.atan2(stack.pop(-3) / stack.pop()) * 180 / math.pi )
         elif op == 'FUP':  stack.append( math.ceil(stack.pop()) )
         elif op == 'FIX':  stack.append( math.floor(stack.pop()) )
@@ -717,14 +731,14 @@ class GcodeParser():
                    tok = next(tokgen, self.default_tok)
                 elif tok.value == "A":
                    value, tok = self.collect_function_call(tokgen, tok, prefix='A')
-                   print('\n\n\nfunc call:', value, '\n\n\n')
+                   #print('\n\n\nfunc call:', value, '\n\n\n')
                 elif tok.type == "BO":
                    value, tok = self.collect_bexpression(tokgen, tok)
                 elif tok.value in self.expr_openers or tok.type in self.expr_openers:
                    value, tok = self.collect_expression(tokgen, tok)
                 elif "_fn" in tok.type:
                    value, tok = self.collect_function_call(tokgen, tok)
-                   print('\n\n\nfunc call:', value, '\n\n\n')
+                   #print('\n\n\nfunc call:', value, '\n\n\n')
                 else:
                    raise Exception(f'cannot figure out this value: ' + GcodeParser.where(tok))
 
@@ -765,7 +779,7 @@ class GcodeParser():
                 tok = next(tokgen, self.default_tok)
                 continue
 
-            print("bottom of loop. tok=", tok)
+            if self.debug: print("bottom of loop. tok=", tok)
             # blame it on the gcode
             raise Exception(f'line:{lineno} column:{tok.column}  invalid syntax {tok.type}, value:{tok.value}')
             # still here? we mssed up
@@ -795,7 +809,7 @@ class GcodeParser():
             # An arity spec by value will override the arity for the type
             # For G-code this handles the funky ATAN
             if func_name in self.arity:
-                print("arity for", func_name, self.arity[func_name])
+                if self.debug: print("arity for", func_name, self.arity[func_name])
                 for argt in self.arity[func_name]:
                     if argt == Expr:
                         arg, tok = self.collect_bexpression(tokgen, tok)
@@ -831,7 +845,7 @@ class GcodeParser():
         """
         break_on_unary = False
         lineno = tok.lineno
-        print(f'{"":20s} epression start:' + tokenstr(tok))
+        if self.debug: print(f'{"":20s} epression start:' + tokenstr(tok))
         if tok.type == 'BO':
             return self.collect_bexpression(tokgen, tok)
         e = list()
@@ -857,11 +871,11 @@ class GcodeParser():
             else:
                 break_on_unary = True
 
-            print(f'{"":20s} epression      :' + tokenstr(tok))
+            if self.debug: print(f'{"":20s} epression      :' + tokenstr(tok))
             e.append(tok) # first token is the "["
             tok = next(tokgen, self.default_tok)
 
-        print(f'{"":20s} epression  next:' + tokenstr(tok))
+        if self.debug: print(f'{"":20s} epression  next:' + tokenstr(tok))
         return Strip(e), tok
 
 
@@ -872,7 +886,7 @@ class GcodeParser():
             returns a <Expr>
         """
         lineno = tok.lineno
-        print(f'{"":20s} bepression start:' + tokenstr(tok))
+        if self.debug: print(f'{"":20s} bepression start:' + tokenstr(tok))
         if tok.type != 'BO':
             raise Exception(f'parser error, not an expression:' + GcodeParser.where(tok))
 
@@ -916,16 +930,16 @@ class GcodeParser():
                 break
 
             # still here?
-            print(f'{"":20s} bepression      :' + tokenstr(tok))
+            if self.debug: print(f'{"":20s} bepression      :' + tokenstr(tok))
             e.append(tok)
             tok = next(tokgen, self.default_tok)
 
         #  last tok should have been a "]"
-        print(f'{"":20s} bepression  last:' + tokenstr(tok))
+        if self.debug: print(f'{"":20s} bepression  last:' + tokenstr(tok))
         if tok.type == 'BC':
             # fresh one for caller
             tok = next(tokgen, self.default_tok)
-            print(f'{"":20s} bepression  next:' + tokenstr(tok))
+            if self.debug: print(f'{"":20s} bepression  next:' + tokenstr(tok))
         else:
             raise Exception(f'expression is missing closing "]":' + GcodeParser.where(tok))
 
@@ -979,7 +993,7 @@ class GcodeParser():
         while True:
             lineno = tok.lineno
             codes, tok = self.collect_line(tokgen, tok)
-            print(f'process_tokens: line {lineno:4d}: {codes}') 
+            if self.debug: print(f'process_tokens: line {lineno:4d}: {codes}') 
 
             self.motion_apply(codes)
 
@@ -1256,6 +1270,7 @@ class GcodeMachine:
 class gcode_test:
     def __init__(self, debug=False) -> None:
         self.gc = GcodeParser(debug=False)
+        self.debug = debug
 
         self.lineno = 0
         self.tokstr = ''
@@ -1360,7 +1375,7 @@ class gcode_test:
                     mo = re.search(r'([(])([^)]*)([)])', code.decode(encoding='utf-8'))
                     if mo:
                         comment = mo.group(2)
-                        print('comment=', comment)
+                        #print('comment=', comment)
                     else:
                         continue
 
@@ -1379,11 +1394,12 @@ class gcode_test:
                         if kind == 'ASSERT':
                             asrt=True
 
-                print("var,want", var, want)
+                #print("var,want", var, want)
                 if var  == '?': continue
                 if want == '?': continue
                 # mem keys for variables are int
                 if re.match(r'\d+', var): var = int(var)
+                else: var = var.upper()
 
                 if want == 0 and lim ==0:
                     assert( self.gc.mem[var] == want )
@@ -1410,24 +1426,24 @@ class gcode_test:
             p = self.gc.parse_inc
 
             p( b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)' )
-            assert(self.gc.x == 8.0)
+            assert(self.gc.X == 8.0)
             assert(self.gc.mem[1] == 2.0)
 
             p( b'n0420 ##1 = 0.375 (#1 is 2, so parameter 2 is set to 0.375)' )
             assert(self.gc.mem[2] == 0.375)
 
             p( b'n0430 x #2 (x should be 0.375) #3=7.0' )
-            assert(self.gc.x == 0.375)
+            assert(self.gc.X == 0.375)
 
             p( b'n0440 #3=5.0 x #3 (parameters set in parallel, so x should be 7, not 5)' )
-            assert(self.gc.x == 7.0)
+            assert(self.gc.X == 7.0)
 
             p( b'n0450 x #3 #3=1.1 (parameters set in parallel, so x should be 5, not 1.1)' )
-            assert(self.gc.x == 5.0)
+            assert(self.gc.X == 5.0)
 
             p( b'n0460 x [2 + asin[1/2.1+-0.345] / [atan[fix[4.4] * 2.1 * sqrt[16.8]] /[-18]]**2]' )
             p( b'n0470 x sqrt[3**2 + 4**2] (x should be 5.0)' )
-            assert(self.gc.x == 5.0)
+            assert(self.gc.X == 5.0)
 
         except Exception as e:
             print("\ngot to here:", "line:", self.lineno, "toks:", self.tokstr + "\n")
@@ -1440,11 +1456,12 @@ class gcode_test:
         self.gc.parse_inc(b'x654')
         self.gc.parse_inc(b'#1 = 3.14')
         self.gc.parse_inc(b'#2 = #1*2')
-        assert(self.gc.f == 246)
-        assert(self.gc.x == 654)
+        assert(self.gc.F == 246)
+        assert(self.gc.X == 654)
         self.gc.parse_inc(b'x654')
 
     def toklog(self, kind:str, value:str, lineno:int, col:int):
+        if not self.debug: return
         print(f'log:  {lineno:4d} {col:2d} {kind:10s} {str(value):10s}')
         if lineno != self.lineno:
            self.lineno = lineno

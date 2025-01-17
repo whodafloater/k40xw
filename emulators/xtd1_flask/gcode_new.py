@@ -69,20 +69,23 @@ class CANON_SPEED_FEED_MODE(Enum):
     CANON_SYNCHED = 1
     CANON_INDEPENDENT = 2
 
-class Gcode():
+class GcodeParser():
     ''' A G-Code Parser based on RS274NGC
 
         reference:
             The NIST RS274NGC Interpreter - Version 3
             Kramer, Proctro, Messina August 17, 2000 
+
+        machine - A machine object to deal with parser output
+                  If none is given then a mock will be used.
     '''
-    def __init__(self, debug=False) -> None:
+    def __init__(self, machine = None, debug=False) -> None:
 
         self.debug = debug
         s = self
         self.default_tok = Token('END', 'end', -1, -1)
 
-        token_info = Gcode.token_info()
+        token_info = GcodeParser.token_info()
         #print("token_info:", token_info)
 
         s.arity = dict()
@@ -132,44 +135,50 @@ class Gcode():
         self.expr_terminators = et
 
 
-        s.G_group = dict()
-        s.M_group = dict()
-
-        # ection 3.4, table 4
-        # The modal groups for G codes are:
-        s.G_group['motion'] = (0, 1, 2, 3, 38.2, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89)
-        s.G_group['plane_selection'] = (17, 18, 19)
-        s.G_group['distance_mode'] = (90, 91)
-        s.G_group['feed_rate_mode'] = (93, 94)
-        s.G_group['units'] = (20, 21)
-        s.G_group['cutter_radius_compensation'] = (40, 41, 42)
-        s.G_group['tool_length_offset'] = (43, 49)
-        s.G_group['canned_cycle_return_mode'] = (98, 99)
-        s.G_group['coordinate_system_selection'] = (54, 55, 56, 57, 58, 59, 59.1, 59.2, 59.3)
-        s.G_group['path_control_mode'] = (61, 61.1, 64)
-        # In addition to the above modal groups, there is a group for non-modal G codes:
-        s.G_group['non_modal'] = (4, 10, 28, 30, 53, 92, 92.1, 92.2, 92.3)
-
-        # The modal groups for M codes are:
-        s.M_group['stopping'] = (0, 1, 2, 30, 60)
-        s.M_group['tool_change'] = (6)
-        s.M_group['spindle_turning'] = (3, 4, 5)
-        s.M_group['coolant'] = (7, 8, 9)
-        s.M_group['speed_feed_override'] = (48, 49)
-
         self.warn = []
         self.paths = list()
-        self.mem = dict()
+        #self.mem = dict()
         self.marks = list()
         self.lineno = 0
         self.logger = None
 
-        self.X = 0
-        self.Y = 0
-        self.Z = 0
-        self.S = 0
-        self.F = 0
+        if machine == None:
+            self.machine = None
+            self.mem = dict()
+            self.motion_apply = self.mock_motion
+        else:
+            self.machine = machine
+            self.mem = self.machine.mem
+            self.motion_apply = self.machine.motion_apply
 
+    def mock_motion(self, codes):
+        # For testing a stand alone parser
+        # Just go though all the codes and eval them
+        print("mock motion_apply:")
+        if 'F' in codes:
+            self.f = self.expr_eval(codes['F'])
+            print(f'   F = {self.f}')
+
+        if 'X' in codes:
+            self.x = self.expr_eval(codes['X'])
+            self.mem['x'] = self.x
+            print(f'   X = {self.x}')
+
+        if 'assigns' in codes:
+            for a in codes['assigns']:
+                print(a.name)
+                t = a.name.toks.pop(0)
+                if t.value != '#':
+                    raise Exception(f'Assignment. rhs does not have "#": ' + Gcode.where(t))
+                rhs = self.expr_eval(a.name)
+                lhs = self.expr_eval(a.expr)
+                print("assign:", "rhs=", rhs, "lhs=", lhs)
+                self.mem[int(rhs)] = lhs
+
+        print("mem:")
+        for a in self.mem:
+            print("    ", a, self.mem[a])
+        pass
 
     #staticmethod
     def token_info():
@@ -240,7 +249,7 @@ class Gcode():
               (MSG foobar)   'foobar' is output to a display
         """
 
-        token_info = Gcode.token_info()
+        token_info = GcodeParser.token_info()
  
         keywords = token_info['lettercodes']
         funcs = token_info['funcs']
@@ -360,67 +369,10 @@ class Gcode():
             yield Token(kind, value, line_num, column)
 
 
-    def motion_apply(self, codes):
-        # Section 3.8, table 8
-        # Items are executed in the order shown if they occur on the same line.
-        #   1. comment (includes message).
-        #   2. set feed rate mode (G93, G94   inverse time or per minute).
-        #   3. set feed rate (F).
-        #   4. set spindle speed (S).
-        #   5. select tool (T).
-        #   6. change tool (M6).
-        #   7. spindle on or off (M3, M4, M5).
-        #   8. coolant on or off (M7, M8, M9).
-        #   9. enable or disable overrides (M48, M49).
-        #   10. dwell (G4).
-        #   11. set active plane (G17, G18, G19).
-        #   12. set length units (G20, G21).
-        #   13. cutter radius compensation on or off (G40, G41, G42)
-        #   14. cutter length compensation on or off (G43, G49)
-        #   15. coordinate system selection (G54, G55, G56, G57, G58, G59, G59.1, G59.2, G59.3).
-        #   16. set path control mode (G61, G61.1, G64)
-        #   17. set distance mode (G90, G91).
-        #   18. set retract mode (G98, G99).
-        #   19. home (G28, G30) or
-        #   change coordinate system data (G10) or
-        #   set axis offsets (G92, G92.1, G92.2, G94).
-        #   20. perform motion (G0 to G3, G80 to G89), as modified (possibly) by G53.
-        #   21. stop (M0, M1, M2, M30, M60).
-
-        # G   Any number of G words but only one from any group
-        # M   Zero to four M words but only one from each group
-        #     special case: M7 and M8 may be active at the same time
-        # Others, only one allowed
-
-        print("motion_apply:")
-        if 'F' in codes:
-            self.f = self.expr_eval(codes['F'])
-            print(f'   F = {self.f}')
-
-        if 'X' in codes:
-            self.x = self.expr_eval(codes['X'])
-            self.mem['x'] = self.x
-            print(f'   X = {self.x}')
-
-        if 'assigns' in codes:
-            for a in codes['assigns']:
-                print(a.name)
-                t = a.name.toks.pop(0)
-                if t.value != '#':
-                    raise Exception(f'Assignment. rhs does not have "#": ' + Gcode.where(t))
-                rhs = self.expr_eval(a.name)
-                lhs = self.expr_eval(a.expr)
-                print("assign:", "rhs=", rhs, "lhs=", lhs)
-                self.mem[int(rhs)] = lhs
-
-        print("mem:")
-        for a in self.mem:
-            print("    ", a, self.mem[a])
-
 
     def expr_show(self, e:Expr = None):
         print('\n\n--- expr_show ---')
-        s = Gcode.reconstruct(e)
+        s = GcodeParser.reconstruct(e)
         print(s)
         print('--- expr_show end---')
         return
@@ -431,7 +383,7 @@ class Gcode():
         return result
     
     def _expr_eval(self, e:Expr = None, i=None):
-        if self.debug: print('expr_eval:', Gcode.reconstruct(e))
+        if self.debug: print('expr_eval:', GcodeParser.reconstruct(e))
 
         if type(e) == Expr:
             pass
@@ -463,13 +415,13 @@ class Gcode():
             i = 0
 
         if len(e.toks) < i+1:
-            raise Exception(f'parse error. tried to parse expression out of token rqange: ' + Gcode.where(e.toks[0]))
+            raise Exception(f'parse error. tried to parse expression out of token rqange: ' + GcodeParser.where(e.toks[0]))
 
         t = e.toks[i]
         if type(t) != Token:
             raise Exception(f'expression is not a Token : ' + str(t))
         if t.type != "BO":
-            raise Exception(f'expression eval must start with a "[": ' + Gcode.where(t))
+            raise Exception(f'expression eval must start with a "[": ' + GcodeParser.where(t))
         else:
             bo = 1
             # note we skip the first token. loop exits when bo back to 0
@@ -488,7 +440,7 @@ class Gcode():
 
            if type(t) == FuncCall:
                # go get eval some args
-               Gcode.show_stack(e, stack, brain)
+               GcodeParser.show_stack(e, stack, brain)
                brain.append(t.name)
 
                print("func name:", t.name)
@@ -502,7 +454,7 @@ class Gcode():
                        stack.append(t.args[argi].value)
                        a_val = len(stack)-1
 
-               Gcode.show_stack(e, stack, brain)
+               GcodeParser.show_stack(e, stack, brain)
                # then fall thru to operate on them
                pass
 
@@ -522,8 +474,8 @@ class Gcode():
                #  if this is called recursively inside a stip
                if bo == 0:
                    if len(stack) > 1 or len(brain) > 0:
-                      self.warn.append(f' Eval finished but left items on stack. Occured at: ' + Gcode.where(t))
-                      Gcode.show_stack(e, stack, brain)
+                      self.warn.append(f' Eval finished but left items on stack. Occured at: ' + GcodeParser.where(t))
+                      GcodeParser.show_stack(e, stack, brain)
                    return stack[0], i
                continue
 
@@ -546,7 +498,7 @@ class Gcode():
                   elif t.value == '+':
                       t = Token('unary_op', 'IDENTITY', t.lineno, t.column)
                   else:
-                      raise Exception(f'do not know how to convert binary_op to unary_op: ' + Gcode.where(t))
+                      raise Exception(f'do not know how to convert binary_op to unary_op: ' + GcodeParser.where(t))
                   brain.append(t)
                   continue
                else:
@@ -555,12 +507,12 @@ class Gcode():
                   continue
 
            else:
-               raise Exception(f'unknown tok type in expression {t.type}, {t.value} at :' + Gcode.where(t))
+               raise Exception(f'unknown tok type in expression {t.type}, {t.value} at :' + GcodeParser.where(t))
 
            #print("try to operate ...")
            #print("   stacklen=", len(stack), "i=", i, "ntoks=", len(e.toks), "bo=",bo)
            while True:
-               #Gcode.show_stack(e, stack, brain)
+               #GcodeParser.show_stack(e, stack, brain)
                #print("at the end?", "stacklen=", len(stack), "i=", i, "ntoks=", len(e.toks), "bo=",bo)
                if len(brain) == 0:
                    # doctor cannot be trusted
@@ -594,7 +546,7 @@ class Gcode():
 
     #staticmethod
     def show_stack(e, stack, brain, i=None):
-        print('    expr_eval:', Gcode.reconstruct(e))
+        print('    expr_eval:', GcodeParser.reconstruct(e))
         print("    stack:",  stack)
         for b in brain: print("    brain:", b)
 
@@ -606,20 +558,20 @@ class Gcode():
                 if type(t) == Token:
                     s = s + ' ' + str(t.value)
                 else:
-                    s = s + Gcode.reconstruct(t)
+                    s = s + GcodeParser.reconstruct(t)
             return s
         elif type(thing) == FuncCall:
             f = thing.name.value
             for a in thing.args:
-                f = f + Gcode.reconstruct(a)
+                f = f + GcodeParser.reconstruct(a)
             return f
         elif type(thing) == Strip:
             f = ''
             for a in thing.toks:
-                f = f + Gcode.reconstruct(a)
+                f = f + GcodeParser.reconstruct(a)
             return f
         elif type(thing) == Assign:
-            return Gcode.reconstruct(thing.name) + '=' + Gcode.reconstruct(thing.expr)
+            return GcodeParser.reconstruct(thing.name) + '=' + GcodeParser.reconstruct(thing.expr)
         elif type(thing) == Token:
             return str(thing.value)
         elif type(thing) == int:
@@ -722,21 +674,6 @@ class Gcode():
         assert(x == 10)
 
 
-    def program_init(self, logger = None):
-        self.logger = logger
-        self.markstart = None
-        self.markstop = None
-        self.warn = []
-        self.marks = list()
-        self.lineno = 0
-
-
-    def program_finish(self):
-        if self.markstart != None and self.markstop == None:
-            self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
-
-        self.print_warn()
-
 
     def list_tokens(self, tokgen):
         print("-------- list_tokens() ----------")
@@ -750,36 +687,6 @@ class Gcode():
             if tok == self.default_tok:
                 break
 
-
-    def process_line(self, tokgen):
-        tok = next(tokgen, self.default_tok)
-        if tok == self.default_tok:
-            return
-        if tok.type == 'MARKEND':
-            return
-        codes, tok = self.collect_line(tokgen, tok)
-        self.motion_apply(codes)
-
-
-    def process_tokens(self, tokgen):
-        #codes = dict()
-        tok = next(tokgen, self.default_tok)
-        if tok == self.default_tok:
-            return
-        if tok.type == 'MARKEND':
-            return
-
-        while True:
-            lineno = tok.lineno
-            codes, tok = self.collect_line(tokgen, tok)
-            print(f'process_tokens: line {lineno:4d}: {codes}') 
-
-            self.motion_apply(codes)
-
-            if tok.type == 'MARKEND':
-               break
-            if tok.type == 'END':
-               break
 
 
     def collect_line(self, tokgen, tok):
@@ -819,7 +726,7 @@ class Gcode():
                    value, tok = self.collect_function_call(tokgen, tok)
                    print('\n\n\nfunc call:', value, '\n\n\n')
                 else:
-                   raise Exception(f'cannot figure out this value: ' + Gcode.where(tok))
+                   raise Exception(f'cannot figure out this value: ' + GcodeParser.where(tok))
 
                 #print(f'  {tok.lineno:4d}  {tok.type:20s}  {tok.value}')
 
@@ -842,7 +749,7 @@ class Gcode():
                         codes['assigns'] = list()
                     codes['assigns'].append(Assign(lhs, rhs))
                 else:
-                    self.warn.append(f'Floater expression: ' + Gcode.where(tok))
+                    self.warn.append(f'Floater expression: ' + GcodeParser.where(tok))
                 continue
 
             elif 'COM' in tok.type:
@@ -897,7 +804,7 @@ class Gcode():
                         args.append(tok)
                         tok = next(tokgen, self.default_tok)
                     else:
-                        raise Exception(f'unknown type airty' + Gcode.where(t) + self.arity[func_name])
+                        raise Exception(f'unknown type airty' + GcodeParser.where(t) + self.arity[func_name])
 
             # The default arity is a sequence of Expr
             else:
@@ -905,10 +812,10 @@ class Gcode():
                      arg, tok = self.collect_bexpression(tokgen, tok)
                      args.append(arg)
         else:
-            raise Exception(f'parser error, arity is undefined for function call: {func_name}:' + Gcode.where(tok))
+            raise Exception(f'parser error, arity is undefined for function call: {func_name}:' + GcodeParser.where(tok))
 
         if tok.lineno > lineno:
-            raise Exception(f'parser error, function args ran passed end of line: {func_name}:' + Gcode.where(tok))
+            raise Exception(f'parser error, function args ran passed end of line: {func_name}:' + GcodeParser.where(tok))
 
         return FuncCall(func, args), tok
 
@@ -967,7 +874,7 @@ class Gcode():
         lineno = tok.lineno
         print(f'{"":20s} bepression start:' + tokenstr(tok))
         if tok.type != 'BO':
-            raise Exception(f'parser error, not an expression:' + Gcode.where(tok))
+            raise Exception(f'parser error, not an expression:' + GcodeParser.where(tok))
 
         e = list()
         e.append(tok) # first token is the "["
@@ -1020,7 +927,7 @@ class Gcode():
             tok = next(tokgen, self.default_tok)
             print(f'{"":20s} bepression  next:' + tokenstr(tok))
         else:
-            raise Exception(f'expression is missing closing "]":' + Gcode.where(tok))
+            raise Exception(f'expression is missing closing "]":' + GcodeParser.where(tok))
 
         return Expr(e), tok
 
@@ -1028,6 +935,58 @@ class Gcode():
     @staticmethod
     def where(tok):
         return f'line:{tok.lineno} column:{tok.column} "{tok.value}"'
+
+
+    def print_warn(self):
+        for i in self.warn:
+            print(f'WARN: {i}')
+
+
+    def program_init(self, logger = None):
+        self.logger = logger
+        self.markstart = None
+        self.markstop = None
+        self.warn = []
+        self.marks = list()
+        self.lineno = 0
+
+
+    def program_finish(self):
+        if self.markstart != None and self.markstop == None:
+            self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
+
+        self.print_warn()
+
+
+    def process_line(self, tokgen):
+        tok = next(tokgen, self.default_tok)
+        if tok == self.default_tok:
+            return
+        if tok.type == 'MARKEND':
+            return
+        codes, tok = self.collect_line(tokgen, tok)
+        self.motion_apply(codes)
+
+
+    def process_program(self, tokgen):
+        #codes = dict()
+        tok = next(tokgen, self.default_tok)
+        if tok == self.default_tok:
+            return
+        if tok.type == 'MARKEND':
+            return
+
+        while True:
+            lineno = tok.lineno
+            codes, tok = self.collect_line(tokgen, tok)
+            print(f'process_tokens: line {lineno:4d}: {codes}') 
+
+            self.motion_apply(codes)
+
+            if tok.type == 'MARKEND':
+               break
+            if tok.type == 'END':
+               break
  
 
     def parse_expr(self, gcode: bytes, logger = None):
@@ -1039,10 +998,10 @@ class Gcode():
         print(f'\nparse_expr(): input line: {gcode}') 
         self.warn = []
 
-        tokgen = Gcode.tokenize(gcode, logger = logger)
+        tokgen = GcodeParser.tokenize(gcode, logger = logger)
         self.list_tokens(tokgen)
 
-        tokgen = Gcode.tokenize(gcode)
+        tokgen = GcodeParser.tokenize(gcode)
         tok = next(tokgen, self.default_tok)
         codes, tok = self.collect_line(tokgen, tok)
         print(f'\n\nline  {codes}') 
@@ -1062,26 +1021,145 @@ class Gcode():
         else: logger = self.logger
 
         gcode = gcode.decode(encoding='utf-8').upper()
-        tokgen = Gcode.tokenize(gcode, line_count = self.lineno, logger = logger)
+        tokgen = GcodeParser.tokenize(gcode, line_count = self.lineno, logger = logger)
         self.lineno += 1
         self.process_line(tokgen)
 
 
     def parse_gcode(self, gcode: bytes):
         self.program_init()
-        tokgen = Gcode.tokenize(gcode.decode(encoding='utf-8').upper())
+        tokgen = GcodeParser.tokenize(gcode.decode(encoding='utf-8').upper())
         self.list_tokens(tokgen)
         self.program_finish()
 
-        tokgen = Gcode.tokenize(gcode.decode(encoding='utf-8').upper())
+        tokgen = GcodeParser.tokenize(gcode.decode(encoding='utf-8').upper())
         self.program_init()
-        self.process_tokens(tokgen)
+        self.process_program(tokgen)
         self.program_finish()
 
 
-    def print_warn(self):
-        for i in self.warn:
-            print(f'WARN: {i}')
+
+
+class GcodeMachine:
+    def __init__(self, parser = None, debug = False) -> None:
+
+        self.debug = debug
+
+        if parser == None:
+            parser = GcodeParser(machine = self)
+
+        self.parser = parser
+        self.mem = dict()
+
+        s = self
+
+        s.G_group = dict()
+        s.M_group = dict()
+
+        # https://docs.python.org/3/glossary.html#term-list-comprehension
+        s.Groupname = list( 'undefined' for i in range(17) )
+
+        s.Groupname[0] = 'non_modal'
+        s.Groupname[1] = 'motion'
+        s.Groupname[2] = 'plane_selection'
+        s.Groupname[3] = 'distance_mode'
+        s.Groupname[5] = 'feed_rate_mode'
+        s.Groupname[6] = 'units'
+        s.Groupname[7] = 'cutter_radius_compensation'
+        s.Groupname[8] = 'tool_length_offset'
+        s.Groupname[10] = 'canned_cycle_return_mode'
+        s.Groupname[11] = 'scaling'
+        s.Groupname[12] = 'coordinate_system_selection'
+        s.Groupname[15] = 'path_control_mode'
+        s.Groupname[16] = 'rotation'
+
+        # ection 3.4, table 4
+        # The modal groups for G codes are:
+        s.G_group['motion'] = (0, 1, 2, 3, 38.2, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89)
+        s.G_group['plane_selection'] = (17, 18, 19)
+        s.G_group['distance_mode'] = (90, 91)
+        s.G_group['feed_rate_mode'] = (93, 94)
+        s.G_group['units'] = (20, 21)
+        s.G_group['cutter_radius_compensation'] = (40, 41, 42)
+        s.G_group['tool_length_offset'] = (43, 49)
+        s.G_group['canned_cycle_return_mode'] = (98, 99)
+        s.G_group['scaling'] = (50, 51)
+        s.G_group['coordinate_system_selection'] = (54, 55, 56, 57, 58, 59, 59.1, 59.2, 59.3)
+        s.G_group['path_control_mode'] = (61, 61.1, 64)
+        # In addition to the above modal groups, there is a group for non-modal G codes:
+        s.G_group['non_modal'] = (4, 10, 28, 30, 53, 92, 92.1, 92.2, 92.3)
+
+        # The modal groups for M codes are:
+        s.M_group['stopping'] = (0, 1, 2, 30, 60)
+        s.M_group['tool_change'] = (6)
+        s.M_group['spindle_turning'] = (3, 4, 5)
+        s.M_group['coolant'] = (7, 8, 9)
+        s.M_group['speed_feed_override'] = (48, 49)
+
+        self.X = 0
+        self.Y = 0
+        self.Z = 0
+        self.S = 0
+        self.F = 0
+
+
+
+    def motion_apply(self, codes):
+        # Section 3.8, table 8
+        # Items are executed in the order shown if they occur on the same line.
+        #   1. comment (includes message).
+        #   2. set feed rate mode (G93, G94   inverse time or per minute).
+        #   3. set feed rate (F).
+        #   4. set spindle speed (S).
+        #   5. select tool (T).
+        #   6. change tool (M6).
+        #   7. spindle on or off (M3, M4, M5).
+        #   8. coolant on or off (M7, M8, M9).
+        #   9. enable or disable overrides (M48, M49).
+        #   10. dwell (G4).
+        #   11. set active plane (G17, G18, G19).
+        #   12. set length units (G20, G21).
+        #   13. cutter radius compensation on or off (G40, G41, G42)
+        #   14. cutter length compensation on or off (G43, G49)
+        #   15. coordinate system selection (G54, G55, G56, G57, G58, G59, G59.1, G59.2, G59.3).
+        #   16. set path control mode (G61, G61.1, G64)
+        #   17. set distance mode (G90, G91).
+        #   18. set retract mode (G98, G99).
+        #   19. home (G28, G30) or
+        #   change coordinate system data (G10) or
+        #   set axis offsets (G92, G92.1, G92.2, G94).
+        #   20. perform motion (G0 to G3, G80 to G89), as modified (possibly) by G53.
+        #   21. stop (M0, M1, M2, M30, M60).
+
+        # G   Any number of G words but only one from any group
+        # M   Zero to four M words but only one from each group
+        #     special case: M7 and M8 may be active at the same time
+        # Others, only one allowed
+
+        print("motion_apply:")
+        if 'F' in codes:
+            self.f = self.parser.expr_eval(codes['F'])
+            print(f'   F = {self.f}')
+
+        if 'X' in codes:
+            self.x = self.parser.expr_eval(codes['X'])
+            self.mem['x'] = self.x
+            print(f'   X = {self.x}')
+
+        if 'assigns' in codes:
+            for a in codes['assigns']:
+                print(a.name)
+                t = a.name.toks.pop(0)
+                if t.value != '#':
+                    raise Exception(f'Assignment. rhs does not have "#": ' + GcodeParser.where(t))
+                rhs = self.parser.expr_eval(a.name)
+                lhs = self.parser.expr_eval(a.expr)
+                print("assign:", "rhs=", rhs, "lhs=", lhs)
+                self.mem[int(rhs)] = lhs
+
+        print("mem:")
+        for a in self.mem:
+            print("    ", a, self.mem[a])
 
 
     def __not_implemented(self, com):
@@ -1090,41 +1168,41 @@ class Gcode():
 
     # These are from rs274/NGC page 44 table 9
     # Representation 
-    def set_origin_offsets(self, x, y, z, a, b, c):
+    def set_origin_offsets(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
     def use_length_units(self, units:CANON_UNITS):
         pass
     # Free Space Motion
-    def straight_traverse(self, x, y, z, a, b, c):
+    def straight_traverse(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
     # Machining Attributes
     def select_plane(self, plane:CANON_PLANE):
         pass
-    def set_feed_rate(self, rate):
+    def set_feed_rate(self, rate:float):
         pass
     def set_feed_reference(self, reference:CANON_FEED_REFERENCE):
         pass
     def set_motion_control_mode(self, mode:CANON_MOTION_MODE):
         pass
-    def start_speed_feed_synch(self):
+    def start_speed_feed_synch(self:float):
         pass
-    def stop_speed_feed_synch(self):
+    def stop_speed_feed_synch(self:float):
         pass
     # Machining Functions
-    def arc_feed(self, first_end, second_end, first_axis, 
-                 second_axis, rotation:int, axis_end_point, a, b, c):
+    def arc_feed(self, first_end:float, second_end:float, first_axis:float, 
+                 second_axis:float, rotation:int, axis_end_point:float, a:float, b:float, c:float):
         pass
-    def dwell(self, seconds):
+    def dwell(self, seconds:float):
         pass
-    def straight_feed(self, x, y, z, a, b, c):
+    def straight_feed(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
     # Probe Functions
-    def straight_probe(self, x, y, z, a, b, c):
+    def straight_probe(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
     # Spindle Functions
-    def orient_spindle(self, orientation, direction:CANON_DIRECTION):
+    def orient_spindle(self, orientation:float, direction:CANON_DIRECTION):
         pass
-    def set_spindle_speed(self, r):
+    def set_spindle_speed(self, r:float):
         pass
     def start_spindle_clockwise(self):
         pass
@@ -1137,10 +1215,10 @@ class Gcode():
         pass
     def select_tool(self, i:int):
         pass
-    def use_tool_length_offset(self, offset):
+    def use_tool_length_offset(self, offset:float):
         pass
     # Miscellaneous Functions
-    def comment(self, s):
+    def comment(self, s:str):
         pass
     def disable_feed_override(self):
         pass
@@ -1156,7 +1234,7 @@ class Gcode():
         pass
     def init_canon(self):
         pass
-    def message(self, s):
+    def message(self, s:str):
         pass
     def mist_off(self):
         pass
@@ -1177,7 +1255,7 @@ class Gcode():
 
 class gcode_test:
     def __init__(self, debug=False) -> None:
-        self.gc = Gcode(debug=False)
+        self.gc = GcodeParser(debug=False)
 
         self.lineno = 0
         self.tokstr = ''
@@ -1393,7 +1471,7 @@ if __name__ == '__main__':
                gcode_samples.gc_expression_test
               ]
 
-    gcode = Gcode()
+    gcode = GcodeParser()
     for gc in samples:
         print(gc.decode(encoding='utf-8').upper())
 

@@ -17,7 +17,7 @@ from enum import Enum
 # from https://docs.python.org/3/library/re.html#writing-a-tokenizer
 
 debug_tok = False
-#debug_tok = True
+debug_tok = True
 
 class Token(NamedTuple):
     type: str
@@ -411,7 +411,7 @@ class Gcode():
                 rhs = self.expr_eval(a.name)
                 lhs = self.expr_eval(a.expr)
                 print("assign:", "rhs=", rhs, "lhs=", lhs)
-                self.mem[rhs] = lhs
+                self.mem[int(rhs)] = lhs
 
         print("mem:")
         for a in self.mem:
@@ -1216,119 +1216,110 @@ class gcode_test:
         assert( close( b' atan[1.7321]/[1.0]', 60.0, 1e-3 ))
 
     def test_expr(self):
-        close = lambda val, want, lim=1e-6: abs(1 - float(val) / want) < lim
+        close =    lambda val, want, lim=1e-6: abs(1.0 - float(val) / float(want)) < lim
+        absclose = lambda val, want, lim=1e-6: abs(float(want) - float(val)) < float(lim)
         exact = lambda val, want: val == want
-        try:
-            self.gc.program_init(logger = self.toklog)
-            p = self.gc.parse_inc
+        x = '?'
+        w = '?'
+        g = [
+              [ x, w, 0,    b'n0020 x [1 + 2] (x should be 3)'],
+              [ x, w, 0,    b'n0030 x [1 - 2] (x should be -1)'],
+              [ x, w, 0,    b'n0040 x [1 --3] (x should be 4)'],
+              [ x, w, 1e-4, b'n0050 x [2/5] (x should be 0.40)'],
+              [ x, w, 0,    b'n0060 x [3.0 * 5] (x should be 15)'],
+              [ x, w, 0,    b'n0070 x [0 OR 0] (x should be 0)'],
+              [ x, w, 0,    b'n0080 x [0 OR 1] (x should be 1)'],
+              [ x, w, 0,    b'n0090 x [2 or 2] (x should be 1)'],
+              [ x, w, 0,    b'n0100 x [0 AND 0] (x should be 0)'],
+              [ x, w, 0,    b'n0110 x [0 AND 1] (x should be 0)'],
+              [ x, w, 0,    b'n0120 x [2 and 2] (x should be 1)'],
+              [ x, w, 0,    b'n0130 x [0 XOR 0] (x should be 0)'],
+              [ x, w, 0,    b'n0140 x [0 XOR 1] (x should be 1)'],
+              [ x, w, 0,    b'n0150 x [2 xor 2] (x should be 0)'],
+              [ x, w, 0,    b'n0160 x [15 MOD 4.0] (x should be 3)'],
+              [ x, w, 1e-4, b'n0170 x [1 + 2 * 3 - 4 / 5] (x should be 6.2)'],
+              [ x, w, 1e-4, b'n0180 x sin[30] (x should be 0.5)'],
+              [ x, w, 1e-4, b'n0190 x cos[0.0] (x should be 1.0)'],
+              [ x, w, 1e-4, b'n0200 x tan[60.0] (x should be 1.7321)'],
+              [ x, w, 1e-4, b'n0210 x sqrt[3] (x should be 1.7321)'],
+              [ x, w, 1e-4, b'n0220 x atan[1.7321]/[1.0] (x should be 60.0)'],
+              [ x, w, 1e-4, b'n0230 x asin[1.0] (x should be 90.0)'],
+              [ x, w, 1e-4, b'n0240 x acos[0.707107] (x should be 45.0000)'],
+              [ x, w, 1e-4, b'n0250 x abs[20.0] (x should be 20)'],
+              [ x, w, 1e-4, b'n0260 x abs[-1.23] (x should be 1.23)'],
+              [ x, w, 0,    b'n0270 x round[-0.499] (x should be 0)'],
+              [ x, w, 1e-4, b'n0280 x round[-0.5001] (x should be -1.0)'],
+              [ x, w, 0,    b'n0290 x round[2.444] (x should be 2)'],
+              [ x, w, 0,    b'n0300 x round[9.975] (x should be 10)'],
+              [ x, w, 1e-4, b'n0310 x fix[-0.499] (x should be -1.0)'],
+              [ x, w, 1e-4, b'n0320 x fix[-0.5001] (x should be -1.0)'],
+              [ x, w, 1e-4, b'n0330 x fix[2.444] (x should be 2)'],
+              [ x, w, 1e-4, b'n0340 x fix[9.975] (x should be 9)'],
+              [ x, w, 1e-4, b'n0350 x fup[-0.499] (x should be 0.0)'],
+              [ x, w, 1e-4, b'n0360 x fup[-0.5001] (x should be 0.0)'],
+              [ x, w, 1e-3, b'n0370 x fup[2.444] (x should be 3)'],
+              [ x, w, 1e-4, b'n0380 x fup[9.975] (x should be 10)'],
+              [ x, w, 1e-4, b'n0390 x exp[2.3026] (x should be 10)'],
+              [ x, w, 1e-4, b'n0400 x ln[10.0] (x should be 2.3026)'],
+              [ x, w, 1e-4, b'n0410 x [2 ** 3.0] #1=2.0 (x should be 8.0)'],
+              ['2', 0.375, 1e-4, b'n0420 ##1 = 0.375 (#1 is 2, so parameter 2 is set to 0.375)'],
+              [ x, w, 1e-4, b'n0430 x #2 (x should be 0.375) #3=7.0'],
+              [ x, w, 1e-4, b'n0440 #3=5.0 x #3 (parameters set in parallel, so x should be 7, not 5)'],
+              [ x, w, 1e-4, b'n0450 x #3 #3=1.1 (parameters set in parallel, so x should be 5, not 1.1)'],
+              [ x, w, 1e-4, b'n0460 x [2 + asin[1/2.1+-0.345] / [atan[fix[4.4] * 2.1 * sqrt[16.8]] /[-18]]**2]'],
+              [ x, w, 1e-4, b'n0470 x sqrt[3**2 + 4**2] (x should be 5.0)'],
+            ]
 
-            p( b'n0020 x [1 + 2] (x should be 3) ')
-            assert(self.gc.x == 3)
-            p( b'n0030 x [1 - 2] (x should be -1) ')
-            assert(self.gc.x == -1)
-            p( b'n0040 x [1 --3] (x should be 4) ')
-            assert(self.gc.x == 4)
-            p( b'n0050 x [2/5] (x should be 0.40) ')
-            assert(self.gc.x == 0.4)
-            p( b'n0060 x [3.0 * 5] (x should be 15) ')
-            assert(self.gc.x == 15)
-            p( b'n0070 x [0 OR 0] (x should be 0) ')
-            assert(self.gc.x == 0)
-            p( b'n0080 x [0 OR 1] (x should be 1) ')
-            assert(self.gc.x == 1)
-            p( b'n0090 x [2 or 2] (x should be 1) ')
-            assert(self.gc.x == 1)
-            p( b'n0100 x [0 AND 0] (x should be 0) ')
-            assert(self.gc.x == 0)
-            p( b'n0110 x [0 AND 1] (x should be 0) ')
-            assert(self.gc.x == 0)
-            p( b'n0120 x [2 and 2] (x should be 1) ')
-            assert(self.gc.x == 1)
-            p( b'n0130 x [0 XOR 0] (x should be 0) ')
-            assert(self.gc.x == 0)
-            p( b'n0140 x [0 XOR 1] (x should be 1) ')
-            assert(self.gc.x == 1)
-            p( b'n0150 x [2 xor 2] (x should be 0) ')
-            assert(self.gc.x == 0)
-            p( b'n0160 x [15 MOD 4.0] (x should be 3) ')
-            assert(self.gc.x == 3)
-            p( b'n0170 x [1 + 2 * 3 - 4 / 5] (x should be 6.2) ')
-            assert(self.gc.x == 6.2)
+        self.gc.program_init(logger = self.toklog)
 
-            p( b'n0180 x sin[30] (x should be 0.5) ')
-            assert( close(self.gc.x,  0.5) )
+        for var, want, lim, code in g:
+            try:
+                self.gc.parse_inc(code)
 
-            p( b'n0190 x cos[0.0] (x should be 1.0) ')
-            assert( close(self.gc.x,  1.0) )
+                if [var,want] == ['?', '?']:
+                    # mini parser to pull  [var] should be [value]
+                    # out of comments
+                    mo = re.search(r'([(])([^)]*)([)])', code.decode(encoding='utf-8'))
+                    if mo:
+                        comment = mo.group(2)
+                        print('comment=', comment)
+                    else:
+                        continue
 
-            p( b'n0200 x tan[60.0] (x should be 1.7321) ')
-            assert( close(self.gc.x,  1.7321, 1e-4) )
+                    regex = r'(?P<ID>[a-zA-Z])|(?P<NUMBER>-?\d+(\.\d*)?)|(?P<ASSERT> +should be +)'
+                    tokgen = re.finditer(regex, comment)
+                    asrt = False
+                    for mo in tokgen:
+                        kind = mo.lastgroup
+                        value = mo.group()
+                        #print(f' kind = {kind}   value = {value}')
+                        if asrt:
+                            want = value
+                            break
+                        if kind == 'ID':
+                            var = value
+                        if kind == 'ASSERT':
+                            asrt=True
 
-            p( b'n0210 x sqrt[3] (x should be 1.7321) ')
-            assert( close(self.gc.x,  1.7321, 1e-4) )
+                print("var,want", var, want)
+                if var  == '?': continue
+                if want == '?': continue
+                # mem keys for variables are int
+                if re.match(r'\d+', var): var = int(var)
 
-            p( b'n0220 x atan[1.7321]/[1.0] (x should be 60.0) ')
-            assert( close(self.gc.x,  60.0, 1e-4) )
+                if want == 0 and lim ==0:
+                    assert( self.gc.mem[var] == want )
+                elif abs(float(want)) < 1e-4 and float(lim) > 0:
+                    assert( absclose( self.gc.mem[var], want, lim ) )
+                elif lim == 0:
+                    assert( int(self.gc.mem[var]) == int(want) )
+                else:
+                    assert( close( self.gc.mem[var], want, lim ) )
 
-            p( b'n0230 x asin[1.0] (x should be 90.0) ')
-            assert( close(self.gc.x,  90.0, 1e-4) )
+            except Exception as e:
+                print("\ngot to here:", "line:", self.lineno, "toks:", self.tokstr + "\n")
+                raise(e)
 
-            p( b'n0240 x acos[0.707107] (x should be 45.0000) ')
-            assert( close(self.gc.x,  45.0, 1e-4) )
-
-            p( b'n0250 x abs[20.0] (x should be 20) ')
-            assert( close(self.gc.x,  20) )
-
-            p( b'n0260 x abs[-1.23] (x should be 1.23) ')
-            assert( close(self.gc.x,  1.23) )
-
-            p( b'n0270 x round[-0.499] (x should be 0) ')
-            assert( exact(self.gc.x,  0) )
-
-            p( b'n0280 x round[-0.5001] (x should be -1.0) ')
-            assert( exact(self.gc.x,  -1.0) )
-
-            p( b'n0290 x round[2.444] (x should be 2) ')
-            assert( exact(self.gc.x,  2) )
-
-            p( b'n0300 x round[9.975] (x should be 10) ')
-            assert( exact(self.gc.x,  10) )
-
-            p( b'n0310 x fix[-0.499] (x should be -1.0) ')
-            assert( exact(self.gc.x,  -1.0) )
-
-            p( b'n0320 x fix[-0.5001] (x should be -1.0) ')
-            assert( exact(self.gc.x,  -1.0) )
-
-            p( b'n0330 x fix[2.444] (x should be 2) ')
-            assert( exact(self.gc.x,  2) )
-
-            p( b'n0340 x fix[9.975] (x should be 9) ')
-            assert( exact(self.gc.x,  9) )
-
-            p( b'n0350 x fup[-0.499] (x should be 0.0) ')
-            assert( exact(self.gc.x,  0.0) )
-
-            p( b'n0360 x fup[-0.5001] (x should be 0.0) ')
-            assert( exact(self.gc.x,  0.0) )
-
-            p( b'n0370 x fup[2.444] (x should be 3) ')
-            assert( exact(self.gc.x,  3) )
-
-            p( b'n0380 x fup[9.975] (x should be 10) ')
-            assert( close(self.gc.x,  10, 1e-4) )
-
-            p( b'n0390 x exp[2.3026] (x should be 10) ')
-            assert( close(self.gc.x,  10, 1e-4) )
-
-            p( b'n0400 x ln[10.0] (x should be 2.3026) ')
-            assert( close(self.gc.x,  2.3026, 1e-4) )
-
-
-
-        except Exception as e:
-            print("\ngot to here:", "line:", self.lineno, "toks:", self.tokstr + "\n")
-            raise(e)
 
     def test_assign(self):
         #pg = lambda e: self.gc.parse_gcode(e)

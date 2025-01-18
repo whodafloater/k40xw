@@ -42,33 +42,6 @@ class Assign(NamedTuple):
     name: Strip
     expr: Expr|Strip
 
-class CANON_UNITS(Enum):
-    MM = 1
-    INCH = 2
-
-class CANON_PLANE(Enum):
-    CANON_PLANE_XY = 1
-    CANON_PLANE_YZ = 2
-    CANON_PLANE_XZ = 3
-
-class CANON_FEED_REFERENCE(Enum):
-    CANON_WORKPIECE = 1
-    CANON_XYZ = 2
-
-class CANON_MOTION_MODE(Enum):
-    CANON_EXACT_STOP = 1
-    CANON_EXACT_PATH = 2
-    CANON_CONTINUOUS = 3
-
-class CANON_DIRECTION(Enum):
-    CANON_STOPPED = 1
-    CANON_CLOCKWISE = 2
-    CANON_COUNTERCLOCKWISE = 3
-
-class CANON_SPEED_FEED_MODE(Enum):
-    CANON_SYNCHED = 1
-    CANON_INDEPENDENT = 2
-
 class GcodeParser():
     ''' A G-Code Parser based on RS274NGC
 
@@ -1052,63 +1025,118 @@ class GcodeParser():
         self.program_finish()
 
 
+class CANON_UNITS(Enum):
+    MM = 1
+    INCH = 2
 
+class CANON_AXIS(Enum):
+    CANON_AXIS_X = 1
+    CANON_AXIS_Y = 2
+    CANON_AXIS_Z = 3
+
+class CANON_PLANE(Enum):
+    CANON_PLANE_XY = 1
+    CANON_PLANE_YZ = 2
+    CANON_PLANE_XZ = 3
+
+class CANON_FEED_REFERENCE(Enum):
+    CANON_WORKPIECE = 1
+    CANON_XYZ = 2
+
+class CANON_MOTION_MODE(Enum):
+    CANON_EXACT_STOP = 1
+    CANON_EXACT_PATH = 2
+    CANON_CONTINUOUS = 3
+
+class CANON_DIRECTION(Enum):
+    CANON_STOPPED = 1
+    CANON_CLOCKWISE = 2
+    CANON_COUNTERCLOCKWISE = 3
+
+class CANON_SPEED_FEED_MODE(Enum):
+    CANON_SYNCHED = 1
+    CANON_INDEPENDENT = 2
+
+class CANON_COMP_SIDE(Enum):
+    CANON_COMP_RIGHT = 1
+    CANON_COMP_LEFT = 2
 
 class GcodeMachine:
     def __init__(self, parser = None, debug = False) -> None:
 
         self.debug = debug
 
+        self.mem = dict()
+
         if parser == None:
             parser = GcodeParser(machine = self)
 
         self.parser = parser
-        self.mem = dict()
 
         s = self
 
         s.G_group = dict()
         s.M_group = dict()
+        s.groupname = dict()
 
         # https://docs.python.org/3/glossary.html#term-list-comprehension
-        s.Groupname = list( 'undefined' for i in range(17) )
+        #s.Groupname = list( 'undefined' for i in range(17) )
 
-        s.Groupname[0] = 'non_modal'
-        s.Groupname[1] = 'motion'
-        s.Groupname[2] = 'plane_selection'
-        s.Groupname[3] = 'distance_mode'
-        s.Groupname[5] = 'feed_rate_mode'
-        s.Groupname[6] = 'units'
-        s.Groupname[7] = 'cutter_radius_compensation'
-        s.Groupname[8] = 'tool_length_offset'
-        s.Groupname[10] = 'canned_cycle_return_mode'
-        s.Groupname[11] = 'scaling'
-        s.Groupname[12] = 'coordinate_system_selection'
-        s.Groupname[15] = 'path_control_mode'
-        s.Groupname[16] = 'rotation'
+        s.groupname['G'] = [ 'non_modal',                   # 0
+                          'motion',                      # 1
+                          'plane_selection',             # 2
+                          'distance_mode',               # 3
+                          'undefined',                   # 4
+                          'feed_rate_mode',              # 5
+                          'units',                       # 6
+                          'cutter_radius_compensation',  # 7
+                          'tool_length_offset',          # 8
+                          'undefined',                   # 9
+                          'canned_cycle_return_mode',    # 10
+                          'scaling',                     # 11
+                          'coordinate_system_selection', # 12
+                          'undefined',                   # 13
+                          'undefined',                   # 14
+                          'path_control_mode',           # 15
+                         ]
+
+        s.groupname['M'] = [ 'stopping',
+                          'tool_change',
+                          'spindle_turning',
+                          'coolant',
+                          'speed_feed_override',
+                        ]
+
+        s.group = dict()
+        for letter in s.groupname:
+            s.group[letter] = dict()
+            for name in s.groupname[letter]:
+                s.group[letter][name] = dict()
 
         # ection 3.4, table 4
         # The modal groups for G codes are:
-        s.G_group['motion'] = (0, 1, 2, 3, 38.2, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89)
-        s.G_group['plane_selection'] = (17, 18, 19)
-        s.G_group['distance_mode'] = (90, 91)
-        s.G_group['feed_rate_mode'] = (93, 94)
-        s.G_group['units'] = (20, 21)
-        s.G_group['cutter_radius_compensation'] = (40, 41, 42)
-        s.G_group['tool_length_offset'] = (43, 49)
-        s.G_group['canned_cycle_return_mode'] = (98, 99)
-        s.G_group['scaling'] = (50, 51)
-        s.G_group['coordinate_system_selection'] = (54, 55, 56, 57, 58, 59, 59.1, 59.2, 59.3)
-        s.G_group['path_control_mode'] = (61, 61.1, 64)
+        s.group['G']['motion'] = (0, 1, 2, 3, 38.2, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89)
+        s.group['G']['plane_selection'] = (17, 18, 19)
+        s.group['G']['distance_mode'] = (90, 91)
+        s.group['G']['feed_rate_mode'] = (93, 94)
+        s.group['G']['units'] = (20, 21)
+        s.group['G']['cutter_radius_compensation'] = (40, 41, 42)
+        s.group['G']['tool_length_offset'] = (43, 49)
+        s.group['G']['canned_cycle_return_mode'] = (98, 99)
+        s.group['G']['scaling'] = (50, 51)
+        s.group['G']['coordinate_system_selection'] = (54, 55, 56, 57, 58, 59, 59.1, 59.2, 59.3)
+        s.group['G']['path_control_mode'] = (61, 61.1, 64)
         # In addition to the above modal groups, there is a group for non-modal G codes:
-        s.G_group['non_modal'] = (4, 10, 28, 30, 53, 92, 92.1, 92.2, 92.3)
+        s.group['G']['non_modal'] = (4, 10, 28, 30, 53, 92, 92.1, 92.2, 92.3)
+
+        #s.group['G']['undefined'] = []
 
         # The modal groups for M codes are:
-        s.M_group['stopping'] = (0, 1, 2, 30, 60)
-        s.M_group['tool_change'] = (6)
-        s.M_group['spindle_turning'] = (3, 4, 5)
-        s.M_group['coolant'] = (7, 8, 9)
-        s.M_group['speed_feed_override'] = (48, 49)
+        s.group['M']['stopping'] = (0, 1, 2, 30, 60)
+        s.group['M']['tool_change'] = [6]
+        s.group['M']['spindle_turning'] = (3, 4, 5)
+        s.group['M']['coolant'] = (7, 8, 9)
+        s.group['M']['speed_feed_override'] = (48, 49)
 
         self.X = 0
         self.Y = 0
@@ -1116,6 +1144,16 @@ class GcodeMachine:
         self.S = 0
         self.F = 0
 
+        # make a lookup table for G and M code groups
+        s.group_of = dict()
+        for letter in s.group:
+            s.group_of[letter] = dict()
+            print(letter)
+            for name in s.group[letter]:
+                print(letter, name)
+                for code in s.group[letter][name]:
+                    print(letter, name, code)
+                    s.group_of[letter][code] = name
 
 
     def motion_apply(self, codes):
@@ -1150,30 +1188,14 @@ class GcodeMachine:
         #     special case: M7 and M8 may be active at the same time
         # Others, only one allowed
 
-        print("motion_apply:")
-        if 'F' in codes:
-            self.f = self.parser.expr_eval(codes['F'])
-            print(f'   F = {self.f}')
+        groups = list()
 
-        if 'X' in codes:
-            self.x = self.parser.expr_eval(codes['X'])
-            self.mem['x'] = self.x
-            print(f'   X = {self.x}')
-
-        if 'assigns' in codes:
-            for a in codes['assigns']:
-                print(a.name)
-                t = a.name.toks.pop(0)
-                if t.value != '#':
-                    raise Exception(f'Assignment. rhs does not have "#": ' + GcodeParser.where(t))
-                rhs = self.parser.expr_eval(a.name)
-                lhs = self.parser.expr_eval(a.expr)
-                print("assign:", "rhs=", rhs, "lhs=", lhs)
-                self.mem[int(rhs)] = lhs
-
-        print("mem:")
-        for a in self.mem:
-            print("    ", a, self.mem[a])
+        if 'G' in codes:
+            for code in codes['G']:
+                if group_of['G'][code] in groups:
+                    raise Exception("more than one G code from same group")
+                else:
+                    groups.append(group_of['G'][code])
 
 
     def __not_implemented(self, com):
@@ -1182,31 +1204,72 @@ class GcodeMachine:
 
     # These are from rs274/NGC page 44 table 9
     # Representation 
+    def init_canon(self):
+        pass
+    def end_canon(self):
+        pass
+    def select_plane(self, plane:CANON_PLANE):
+        pass
     def set_origin_offsets(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
     def use_length_units(self, units:CANON_UNITS):
         pass
     # Free Space Motion
+    def set_traverse_rate(self, rate:float):
+        # desired rapid rate, machine may limit at a lower rate
+        pass
     def straight_traverse(self, x:float, y:float, z:float, a:float, b:float, c:float):
+        # no cutting expected
         pass
+
     # Machining Attributes
-    def select_plane(self, plane:CANON_PLANE):
-        pass
     def set_feed_rate(self, rate:float):
+        # ref mode is WORKPIECE
+        #   units per minute along the path
+        # ref mode is XYZ
+        #   deg per minute around one axis
         pass
     def set_feed_reference(self, reference:CANON_FEED_REFERENCE):
+        # WORKPIECE or XYZ
         pass
     def set_motion_control_mode(self, mode:CANON_MOTION_MODE):
+        # EXACT_STOP, EXACT_PATH, CONTINUOUS
         pass
     def start_speed_feed_synch(self:float):
+        # for thread tapping
         pass
     def stop_speed_feed_synch(self:float):
+        # for not thread tapping
         pass
+
     # Machining Functions
-    def arc_feed(self, first_end:float, second_end:float, first_axis:float, 
-                 second_axis:float, rotation:int, axis_end_point:float, a:float, b:float, c:float):
+    def arc_feed(self, first_end:float, second_end:float,
+                       first_axis:float, second_axis:float,
+                       rotation:int, axis_end_point:float,
+                       a:float, b:float, c:float):
+        # helical arc
+        # first and second refer to the plane we are in. 
+        # For XY, X and Y are first and second. axis_end_point is Z at the end of the arc
+        # rotation poisitive is CCW
+        # arc starts at current pos and ends at (first_end, second_end)
         pass
     def dwell(self, seconds:float):
+        # delay
+        pass
+    def ellipse_feed(self,
+                       major:float, minor:float,
+                       first_end:float, second_end:float,
+                       first_axis:float, second_axis:float,
+                       rotation:int, axis_end_point:float,
+                       a:float, b:float, c:float):
+        # helical elliptic arc
+        # first and second refer to the plane we are in. 
+        # For XY, X and Y are first and second. axis_end_point is Z at the end of the arc
+        # rotation poisitive is CCW
+        # arc starts at current pos and ends at (first_end, second_end)
+        pass
+    def stop():
+        # come briefly to a stop after finishing the previous move
         pass
     def straight_feed(self, x:float, y:float, z:float, a:float, b:float, c:float):
         pass
@@ -1217,6 +1280,14 @@ class GcodeMachine:
     def orient_spindle(self, orientation:float, direction:CANON_DIRECTION):
         pass
     def set_spindle_speed(self, r:float):
+        # set speed but do not turn spindle on
+        # if already on, leave it on, change the speed, 
+        pass
+    def spindle_retract(self):
+        # at feed rate
+        pass
+    def spindle_retract_traverse(self):
+        # at rapid rate
         pass
     def start_spindle_clockwise(self):
         pass
@@ -1224,6 +1295,7 @@ class GcodeMachine:
         pass
     def stop_spindle_turning(self):
         pass
+
     # Tool Functions
     def change_tool(self, slot:int):
         pass
@@ -1231,7 +1303,14 @@ class GcodeMachine:
         pass
     def use_tool_length_offset(self, offset:float):
         pass
+
     # Miscellaneous Functions
+    def clamp_axis(axis:CANON_AXIS):
+        # error is move is attemted on a clamed axis
+        pass
+    def unclamp_axis(axis:CANON_AXIS):
+        # error is move is attemted on a clamed axis
+        pass
     def comment(self, s:str):
         pass
     def disable_feed_override(self):
@@ -1246,9 +1325,8 @@ class GcodeMachine:
         pass
     def flood_on(self):
         pass
-    def init_canon(self):
-        pass
     def message(self, s:str):
+        # console msg
         pass
     def mist_off(self):
         pass
@@ -1258,14 +1336,22 @@ class GcodeMachine:
         pass
     # Program Functions
     def optional_program_stop(self):
+        # an optional pause with option to continue
+        pass
+    def program_stop(self):
+        # an forced pause with option to continue
         pass
     def program_end(self):
         if self.markstart != None and self.markstop == None:
             self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
+        # get ready for a new program or shutdown
 
-    def program_stop(self):
+    def set_cutter_radius_compensation(radius:float):
         pass
-
+    def start_cutter_radius_compensation(side:CANON_COMP_SIDE):
+        pass
+    def stop_cutter_radius_compensation():
+        pass
 
 class gcode_test:
     def __init__(self, debug=False) -> None:
@@ -1460,6 +1546,9 @@ class gcode_test:
         assert(self.gc.X == 654)
         self.gc.parse_inc(b'x654')
 
+    def test_machine(self):
+        m = GcodeMachine()
+
     def toklog(self, kind:str, value:str, lineno:int, col:int):
         if not self.debug: return
         print(f'log:  {lineno:4d} {col:2d} {kind:10s} {str(value):10s}')
@@ -1479,6 +1568,10 @@ if __name__ == '__main__':
     gct.test_inc()
     gct.test_assign()
 
+    gct.test_machine()
+
+    exit(0)
+
     import gcode_samples
 
     samples = [
@@ -1493,3 +1586,5 @@ if __name__ == '__main__':
         print(gc.decode(encoding='utf-8').upper())
 
         gcode.parse_gcode(gc)
+
+

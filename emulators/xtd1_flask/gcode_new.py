@@ -1112,11 +1112,13 @@ class GcodeMachine:
         self.group: dict
         self.group_of: dict
         self.state: dict
+        self.status: dict
         self.mem: dict
 
 
         self.debug = debug
         self.state = dict()
+        self.status = dict()
         self.mem = dict()
 
         if parser == None:
@@ -1157,6 +1159,7 @@ class GcodeMachine:
                              ['spindle_turning',             0  ], 
                              ['coolant',                     0  ], 
                              ['speed_feed_override',         0  ], 
+                             ['user_defined_m',              0  ], 
                         ]
 
         self.active =  dict()
@@ -1207,6 +1210,7 @@ class GcodeMachine:
         s.group['M']['spindle_turning'] = (3, 4, 5)
         s.group['M']['coolant'] = (7, 8, 9)
         s.group['M']['speed_feed_override'] = (48, 49)
+        s.group['M']['user_defined_m'] = (17, 18, 97, 106, 205)
 
         for code in s.group['G']['motion']:
             self.feed[code] = 0
@@ -1253,6 +1257,7 @@ class GcodeMachine:
                  [ 'spindle_turning',   []],
                  [ 'coolant',           []],
                  [ 'speed_feed_override', []],
+                 [ 'user_defined_m', []],
                  [ self.do_dwell_command,        [all_codes]], # special case
                  [ 'plane_selection',    []],
                  [ 'units',              []],
@@ -1307,6 +1312,10 @@ class GcodeMachine:
             [ 'G', 93, self.set_feed_rate_mode,   ['units_per_min']],
             [ 'G', 94, self.set_feed_rate_mode,   ['inverse_time']],
             [ 'M', 0, self.not_implemented,   ['M0']],
+            [ 'M', 17, self.xtd1_enable,  []],
+            [ 'M', 18, self.xtd1_disable,  []],
+            [ 'M', 97, self.xtd1_cross_hair_sticky, [s]],
+            [ 'M', 106, self.xtd1_cross_hair,  [s]],
            ]
 
 
@@ -1706,6 +1715,33 @@ class GcodeMachine:
     def stop_speed_feed_synch(self):
         # for not thread tapping
         pass
+
+    def xtd1_enable(self):
+        # M17 steppers enable, led green
+        self.status["working"] = 1
+        self.state["led_cross"] = 0
+        # xtd1 will timeout after a few sec of no actvity and disable
+        pass
+
+    def xtd1_disable(self):
+        # M18
+        self.status["working"] = 0
+        self.state["led_cross"] = 0
+        pass
+
+    def xtd1_cross_hair(self, s):
+        # M106S1  cross on, reset by M17 and M18
+        if s >= 1:
+           self.status["led_cross"] = 1
+        else:
+           self.status["led_cross"] = 0
+
+    def xtd1_cross_hair_sticky(self, s):
+        # M97S0  turns cross on when idle. persistent across power cycles
+        # M97S1  turns off
+        if s == 1:
+           self.status["led_cross"] = 1
+
 
     # Machining Functions
     def rapid(self, axis:Axis, f=None, s=None):
@@ -2128,8 +2164,8 @@ class gcode_test:
         assert(absclose(m.X, 0.0))
         assert(absclose(m.Y, 0.0))
 
-
-
+        m.parse_inc(b'M17S1')
+        m.parse_inc(b'M106S1')
 
     def toklog(self, kind:str, value:str, lineno:int, col:int):
         if not self.debug: return

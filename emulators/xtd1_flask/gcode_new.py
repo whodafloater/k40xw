@@ -54,6 +54,11 @@ class GcodeParser():
     '''
     def __init__(self, machine = None, debug=False) -> None:
 
+        self.arity: dict
+        self.precedence: dict
+        self.warn: list[str]
+        self.marks: list[str]
+
         self.debug = debug
         s = self
         self.default_tok = Token('END', 'end', -1, -1)
@@ -107,23 +112,36 @@ class GcodeParser():
         et.append('COMMENTP')
         self.expr_terminators = et
 
-
         self.warn = []
-        self.paths = list()
-        #self.mem = dict()
         self.marks = list()
         self.lineno = 0
         self.logger = None
 
+        self.machine = None
+        self.mem = None
+        self.command_apply = None
+
+        self.attach_machine(machine)
+
+
+    def attach_machine(self, machine):
+        """Set machine object that will host mem[] and recieve parsed codes
+
+        machine - target object
+
+        Consider extending this to a list of machines so a monitor could be
+        tee'd in.
+        """
         if machine == None:
             self.machine = None
             self.mem = dict()
-            self.motion_apply = self.mock_motion
+            self.command_apply = self.mock_command_apply
             self.mem_init()
         else:
             self.machine = machine
             self.mem = self.machine.mem
-            self.motion_apply = self.machine.motion_apply
+            self.command_apply = self.machine.command_apply
+
 
     def mem_init(self):
         self.mem['S'] = 0
@@ -132,10 +150,10 @@ class GcodeParser():
         self.mem['Y'] = 0
         self.mem['Z'] = 0
 
-    def mock_motion(self, codes):
+    def mock_command_apply(self, codes):
         # For testing a stand alone parser
         # Just go though all the codes and eval them
-        if self.debug: print("mock motion_apply:")
+        if self.debug: print("mock command_apply:")
 
         for letter in codes:
             if letter == 'assigns': continue
@@ -167,7 +185,7 @@ class GcodeParser():
             print("    ", a, self.mem[a])
         pass
 
-    #staticmethod
+    @staticmethod
     def token_info():
         "Common launguage definitions useful to the tokenizer and the parser"
 
@@ -209,7 +227,7 @@ class GcodeParser():
                }
 
 
-    #staticmethod
+    @staticmethod
     def tokenize(code, line_count = None, col_count = None, logger = None):
         """G-Code tokenizer
 
@@ -357,7 +375,7 @@ class GcodeParser():
 
 
 
-    def expr_show(self, e:Expr = None):
+    def expr_show(self, e:Expr|FuncCall|Strip|Token|int|float = 0):
         print('\n\n--- expr_show ---')
         s = GcodeParser.reconstruct(e)
         print(s)
@@ -365,11 +383,11 @@ class GcodeParser():
         return
 
 
-    def expr_eval(self, e:Expr = None, i=None):
+    def expr_eval(self, e:Expr|FuncCall|Strip|Token|int|float = 0, i=None):
         result, i = self._expr_eval(e = e, i = i)
         return result
     
-    def _expr_eval(self, e:Expr = None, i=None):
+    def _expr_eval(self, e:Expr|FuncCall|Strip|Token|int|float = 0, i=None):
         if self.debug: print('expr_eval:', GcodeParser.reconstruct(e))
 
         if type(e) == Expr:
@@ -395,6 +413,8 @@ class GcodeParser():
         else:
             raise Exception(f'cannot evalute thing : ' + str(type(e)))
 
+        stack: list
+        brain: list
         stack = list()
         brain = list()
         s = ''
@@ -414,6 +434,8 @@ class GcodeParser():
             # note we skip the first token. loop exits when bo back to 0
 
         if self.debug: print(f'{"":20s} expr_eval  start:' + tokenstr(t))
+
+        a_val: str|int
 
         a_val = '?'
         while True:
@@ -440,6 +462,8 @@ class GcodeParser():
                    elif type(t.args[argi]) == Token:
                        stack.append(t.args[argi].value)
                        a_val = len(stack)-1
+                   else:
+                       raise Exception(f'parser error: func arg, unknown type: {type(t.args[argi])}: ' + + GcodeParser.where(t))
 
                if self.debug: GcodeParser.show_stack(e, stack, brain)
                # then fall thru to operate on them
@@ -447,7 +471,7 @@ class GcodeParser():
 
            elif t.type in self.arity and  '_fn' in t.type:
                # For _op arity is used for arg count
-               raise Exception(f'parser error raw func toks should be wrapped in FuncCall')
+               raise Exception(f'parser error raw func toks should be wrapped in FuncCall: ' + GcodeParser.where(t))
 
            elif t.type == 'BO':
                bo += 1
@@ -531,13 +555,13 @@ class GcodeParser():
 
            continue # with new token
 
-    #staticmethod
+    @staticmethod
     def show_stack(e, stack, brain, i=None):
         print('    expr_eval:', GcodeParser.reconstruct(e))
         print("    stack:",  stack)
         for b in brain: print("    brain:", b)
 
-    #staticmethod
+    @staticmethod
     def reconstruct(thing):
         s = ''
         if type(thing) == Expr:
@@ -952,7 +976,7 @@ class GcodeParser():
         if tok.type == 'MARKEND':
             return
         codes, tok = self.collect_line(tokgen, tok)
-        self.motion_apply(codes)
+        self.command_apply(codes)
 
 
     def process_program(self, tokgen):
@@ -968,7 +992,7 @@ class GcodeParser():
             codes, tok = self.collect_line(tokgen, tok)
             if self.debug: print(f'process_tokens: line {lineno:4d}: {codes}') 
 
-            self.motion_apply(codes)
+            self.command_apply(codes)
 
             if tok.type == 'MARKEND':
                break
@@ -980,15 +1004,17 @@ class GcodeParser():
         " For testing expression parsing"
         # prepend 'X' to make this valid gcode
         gcode = b'x' + gcode
-        gcode = gcode.decode(encoding='utf-8').upper()
 
-        print(f'\nparse_expr(): input line: {gcode}') 
+        gcodes : str
+        gcodes = gcode.decode(encoding='utf-8').upper()
+
+        print(f'\nparse_expr(): input line: {gcodes}') 
         self.warn = []
 
-        tokgen = GcodeParser.tokenize(gcode, logger = logger)
+        tokgen = GcodeParser.tokenize(gcodes, logger = logger)
         self.list_tokens(tokgen)
 
-        tokgen = GcodeParser.tokenize(gcode)
+        tokgen = GcodeParser.tokenize(gcodes)
         tok = next(tokgen, self.default_tok)
         codes, tok = self.collect_line(tokgen, tok)
         print(f'\n\nline  {codes}') 
@@ -1004,11 +1030,13 @@ class GcodeParser():
 
 
     def parse_inc(self, gcode: bytes, logger = None):
+        if gcode == None: return
         if logger != None: logger = logger
         else: logger = self.logger
 
-        gcode = gcode.decode(encoding='utf-8').upper()
-        tokgen = GcodeParser.tokenize(gcode, line_count = self.lineno, logger = logger)
+        gcodes : str
+        gcodes = gcode.decode(encoding='utf-8').upper()
+        tokgen = GcodeParser.tokenize(gcodes, line_count = self.lineno, logger = logger)
         self.lineno += 1
         self.process_line(tokgen)
 
@@ -1029,43 +1057,66 @@ class CANON_UNITS(Enum):
     MM = 1
     INCH = 2
 
+class CANON_DISTANCE_MODE(Enum):
+    ABSOLUTE = 1
+    INCREMENTAL = 2
+
 class CANON_AXIS(Enum):
-    CANON_AXIS_X = 1
-    CANON_AXIS_Y = 2
-    CANON_AXIS_Z = 3
+    X = 1
+    Y = 2
+    Z = 3
 
 class CANON_PLANE(Enum):
-    CANON_PLANE_XY = 1
-    CANON_PLANE_YZ = 2
-    CANON_PLANE_XZ = 3
+    XY = 1
+    YZ = 2
+    XZ = 3
 
 class CANON_FEED_REFERENCE(Enum):
-    CANON_WORKPIECE = 1
-    CANON_XYZ = 2
+    WORKPIECE = 1
+    XYZ = 2
 
 class CANON_MOTION_MODE(Enum):
-    CANON_EXACT_STOP = 1
-    CANON_EXACT_PATH = 2
-    CANON_CONTINUOUS = 3
+    EXACT_STOP = 1
+    EXACT_PATH = 2
+    CONTINUOUS = 3
 
 class CANON_DIRECTION(Enum):
-    CANON_STOPPED = 1
-    CANON_CLOCKWISE = 2
-    CANON_COUNTERCLOCKWISE = 3
+    STOPPED = 1
+    CLOCKWISE = 2
+    COUNTERCLOCKWISE = 3
 
 class CANON_SPEED_FEED_MODE(Enum):
-    CANON_SYNCHED = 1
-    CANON_INDEPENDENT = 2
+    SYNCHED = 1
+    INDEPENDENT = 2
 
 class CANON_COMP_SIDE(Enum):
-    CANON_COMP_RIGHT = 1
-    CANON_COMP_LEFT = 2
+    RIGHT = 1
+    LEFT = 2
+
+class Axis(NamedTuple):
+    x: float
+    y: float
+    z: float
+    a: float
+    b: float
+    c: float
+
 
 class GcodeMachine:
     def __init__(self, parser = None, debug = False) -> None:
 
-        self.debug = debug
 
+        self.G_group: dict
+        self.M_group: dict
+        self.groupname: dict
+        self.group: dict
+        self.group_of: dict
+        self.state: dict
+        self.mem: dict
+
+
+        self.debug = debug
+        self.state = dict()
         self.mem = dict()
 
         if parser == None:
@@ -1074,7 +1125,6 @@ class GcodeMachine:
         self.parser = parser
 
         s = self
-
         s.G_group = dict()
         s.M_group = dict()
         s.groupname = dict()
@@ -1082,39 +1132,51 @@ class GcodeMachine:
         # https://docs.python.org/3/glossary.html#term-list-comprehension
         #s.Groupname = list( 'undefined' for i in range(17) )
 
-        s.groupname['G'] = [ 'non_modal',                   # 0
-                          'motion',                      # 1
-                          'plane_selection',             # 2
-                          'distance_mode',               # 3
-                          'undefined',                   # 4
-                          'feed_rate_mode',              # 5
-                          'units',                       # 6
-                          'cutter_radius_compensation',  # 7
-                          'tool_length_offset',          # 8
-                          'undefined',                   # 9
-                          'canned_cycle_return_mode',    # 10
-                          'scaling',                     # 11
-                          'coordinate_system_selection', # 12
-                          'undefined',                   # 13
-                          'undefined',                   # 14
-                          'path_control_mode',           # 15
-                         ]
+       #                      name                inital code value
 
-        s.groupname['M'] = [ 'stopping',
-                          'tool_change',
-                          'spindle_turning',
-                          'coolant',
-                          'speed_feed_override',
+        s.groupname['G'] = [ ['non_modal',                   0  ],  # 0
+                             ['motion',                      0  ],  # 1
+                             ['plane_selection',             17  ],  # 2
+                             ['distance_mode',               90  ],  # 3
+                             ['undefined',                   0  ],  # 4
+                             ['feed_rate_mode',              93  ],  # 5
+                             ['units',                       21  ],  # 6
+                             ['cutter_radius_compensation',  40  ],  # 7
+                             ['tool_length_offset',          43  ],  # 8
+                             ['undefined',                   0  ],  # 9
+                             ['canned_cycle_return_mode',    98  ],  # 10
+                             ['scaling',                     50  ],  # 11
+                             ['coordinate_system_selection', 54 ],  # 12
+                             ['undefined',                   0  ],  # 13
+                             ['undefined',                   0  ],  # 14
+                             ['path_control_mode',           61 ],  # 15
+                            ]
+
+        s.groupname['M'] = [ ['stopping',                    0  ], 
+                             ['tool_change',                 0  ], 
+                             ['spindle_turning',             0  ], 
+                             ['coolant',                     0  ], 
+                             ['speed_feed_override',         0  ], 
                         ]
+
+        self.active =  dict()
+        self.feed =  dict()
+        self.spindle =  dict()
 
         s.group = dict()
         for letter in s.groupname:
             s.group[letter] = dict()
-            for name in s.groupname[letter]:
+            for name,default in s.groupname[letter]:
                 s.group[letter][name] = dict()
+                self.active[name] = default
+
+        #self.feed[ self.active['motion'] ] = 0
+        #self.spindle[ self.active['motion'] ] = 0
+
 
         # ection 3.4, table 4
         # The modal groups for G codes are:
+        #  38.2 probe, 80-89 canned cycles
         s.group['G']['motion'] = (0, 1, 2, 3, 38.2, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89)
         s.group['G']['plane_selection'] = (17, 18, 19)
         s.group['G']['distance_mode'] = (90, 91)
@@ -1129,7 +1191,15 @@ class GcodeMachine:
         # In addition to the above modal groups, there is a group for non-modal G codes:
         s.group['G']['non_modal'] = (4, 10, 28, 30, 53, 92, 92.1, 92.2, 92.3)
 
-        #s.group['G']['undefined'] = []
+        # names here should not be groupnames.
+        # one for each setting that is not in modal group
+        self.active['dwell'] = 0   # G4
+        self.active['origin'] = 0   # G10
+                                    # G28 return to home
+                                    # G30 return to secondary home
+                                    # G53 move absolute
+
+        # 10, 28, 30, and 92 axis words suspend motion group axis settings
 
         # The modal groups for M codes are:
         s.group['M']['stopping'] = (0, 1, 2, 30, 60)
@@ -1138,11 +1208,9 @@ class GcodeMachine:
         s.group['M']['coolant'] = (7, 8, 9)
         s.group['M']['speed_feed_override'] = (48, 49)
 
-        self.X = 0
-        self.Y = 0
-        self.Z = 0
-        self.S = 0
-        self.F = 0
+        for code in s.group['G']['motion']:
+            self.feed[code] = 0
+            self.spindle[code] = 0
 
         # make a lookup table for G and M code groups
         s.group_of = dict()
@@ -1156,7 +1224,189 @@ class GcodeMachine:
                     s.group_of[letter][code] = name
 
 
-    def motion_apply(self, codes):
+        # parameter access functions used in call tables
+        f = lambda codes : self.command_param('F', codes)
+        s = lambda codes : self.command_param('S', codes)
+        t = lambda codes : self.command_param('T', codes)
+        p = lambda codes : self.command_param('P', codes)
+        r = lambda codes : self.command_param('R', codes)
+        i = lambda codes : self.command_param('I', codes)
+        j = lambda codes : self.command_param('J', codes)
+        all_codes = lambda codes : codes
+        cmd_axis = lambda codes : self.command_axis(codes)
+        gopt = lambda code : re.sub(r'^\d+\.', '', code)  # digits after '.'
+
+
+        # Section 3.8, table 8
+        # list of group name or func name and arg list
+        # in this list order
+        #     group name  -  handle codes in that group if there are any
+        #                    could be a G group or an M group
+        #                    dewell is the only special case. 
+        #     func, args  -  run the func with evaluated args
+        self.exec_order: list = [
+                 [ 'feed_rate_mode',    []],
+                 [ self.set_feed_rate,          [all_codes]],
+                 [ self.set_spindle_speed, [s]],
+                 [ self.select_tool,       [t]],
+                 [ 'tool_change',       []],
+                 [ 'spindle_turning',   []],
+                 [ 'coolant',           []],
+                 [ 'speed_feed_override', []],
+                 [ self.do_dwell_command,        [all_codes]], # special case
+                 [ 'plane_selection',    []],
+                 [ 'units',              []],
+                 [ 'cutter_radius_compensation',  []],
+                 [ 'tool_length_offset',   []],
+                 [ 'coordinate_system_selection', []],
+                 [ 'path_control_mode', []],
+                 [ 'distance_mode', []],
+                 [ 'canned_cycle_return_mode', []],
+                 [ 'non_modal', []],                    # expect dewll
+                 [ self.__do_motion, [all_codes]],
+                 [ 'stopping', []]
+                ]
+
+        call_builder = list()
+        call_builder = [
+            [ 'G',  0, self.rapid,          [cmd_axis, f, s]],
+            [ 'G',  1, self.linear,         [cmd_axis, f, s]],
+            [ 'G',  2, 'arc_cw',         [cmd_axis, r, i, j]],
+            [ 'G',  3, 'arc_ccw',        [cmd_axis, r, i, j]],
+
+            [ 'G', 38, 'probe',          [cmd_axis, gopt, ]],
+
+            [ 'G', 80, 'cancel_modal_motion', []],
+            [ 'G', 81, 'drill_cycle',       [cmd_axis, r, f, s]],
+            [ 'G', 82, 'drill_cycle_dwell', [cmd_axis, r, f, s, p]],
+
+
+            #[ 'G',  4, self.do_dwell,          [p]],
+            [ 'G',  4, self.no_op,          []],          # dwell handled earlier in sequence. why?
+
+            [ 'G', 17, self.set_plane,  ['XY']],
+            [ 'G', 18, self.set_plane,  ['XZ']],
+            [ 'G', 19, self.set_plane,  ['YZ']],
+            [ 'G', 20, self.use_length_units,  ['inch']],
+            [ 'G', 21, self.use_length_units,  [ 'mm']],
+            [ 'G', 40, self.not_implemented,   ['G40']],
+
+            [ 'G', 53, self.move_absolute,   [cmd_axis]],
+            [ 'G', 54, 'coord_system',   [1]],
+            [ 'G', 55, 'coord_system',   [2]],
+            [ 'G', 56, 'coord_system',   [3]],
+            [ 'G', 57, 'coord_system',   [4]],
+            [ 'G', 58, 'coord_system',   [5]],
+            [ 'G', 59, 'coord_system',   [6]],
+            [ 'G', 59.1, 'coord_system',   [7]],
+            [ 'G', 59.2, 'coord_system',   [8]],
+            [ 'G', 59.3, 'coord_system',   [9]],
+            [ 'G', 90, self.set_distance_mode,       [90, 'absolute']],
+            [ 'G', 91, self.set_distance_mode,       [91, 'incremental']],
+            [ 'G', 92, self.set_origin_offsets,   [cmd_axis]],
+            [ 'G', 93, self.set_feed_rate_mode,   ['units_per_min']],
+            [ 'G', 94, self.set_feed_rate_mode,   ['inverse_time']],
+            [ 'M', 0, self.not_implemented,   ['M0']],
+           ]
+
+
+        self.ok = dict()
+        self.ok['distance_mode'] =  ['absolute', 'incremental']
+        self.ok['feed_rate_mode'] = ['units_per_min', 'inverse_time']
+        self.ok['plane'] = ['XY', 'XZ', 'YZ']
+        self.ok['length_units'] = ['inch', 'mm']
+
+        ct = self.build_call_table(call_builder)
+        for letter in ct:
+            for code in ct[letter]:
+                func, args = ct[letter][code]
+                print(letter, code, func, args)
+
+        print("ct=",ct)
+
+        self.call_table = ct
+
+        self.init_machine()
+
+    def init_machine(self):
+        self.init_mem()
+        self.init_state()
+
+        self.set_distance_mode(90, 'absolute')
+        self.set_plane('XY')
+        self.set_feed_rate_mode('units_per_min')
+        self.use_length_units('mm')
+
+
+    def init_mem(self):
+        self.mem = dict()
+        self.mem['S'] = 0
+        self.mem['F'] = 0
+        self.mem['X'] = 0
+        self.mem['Y'] = 0
+        self.mem['Z'] = 0
+        self.mem['A'] = 0
+        self.mem['B'] = 0
+        self.mem['C'] = 0
+
+    def init_state(self):
+        self.state['F'] = 0
+        self.state['S'] = 0
+        self.state['X'] = 0
+        self.state['Y'] = 0
+        self.state['Z'] = 0
+        self.state['A'] = 0
+        self.state['B'] = 0
+        self.state['C'] = 0
+        self.update_shortcuts()
+
+    def update_shortcuts(self):
+        self.F = self.state['F']
+        self.S = self.state['S']
+        self.X = self.state['X']
+        self.Y = self.state['Y']
+        self.Z = self.state['Z']
+        self.A = self.state['A']
+        self.B = self.state['B']
+        self.C = self.state['C']
+        print(self.state)
+
+
+    def build_call_table(self, b):
+        ct = dict()
+        for c in b:
+           letter = c.pop(0)
+           if not letter in ct: ct[letter] = dict()
+           code = c.pop(0)
+           func = c.pop(0)
+           args = c.pop(0)
+           ct[letter][code] = [func, args]
+        return ct
+
+
+    def program_init(self, logger = None):
+        self.parser.program_init (logger = logger)
+
+    def parse_inc(self, gcode: bytes, logger = None, expect=None):
+        self.expect = expect
+        self.parser.parse_inc (gcode, logger = logger)
+
+    def command_apply(self, codes):
+        try:
+            self.__command_apply(codes)
+
+        except Exception as e:
+            if str(e) == self.expect:
+                print(str(e), " ... but it was expected")
+                self.expect = None
+                pass
+            else:
+                raise(e)
+
+        if self.expect != None:
+            raise Exception("Expected an error but it did not occur: " + self.expect)
+
+    def __command_apply(self, codes):
         # Section 3.8, table 8
         # Items are executed in the order shown if they occur on the same line.
         #   1. comment (includes message).
@@ -1186,21 +1436,187 @@ class GcodeMachine:
         # G   Any number of G words but only one from any group
         # M   Zero to four M words but only one from each group
         #     special case: M7 and M8 may be active at the same time
-        # Others, only one allowed
+        # Others, only one allowed. Already enfoced by the parser
 
-        groups = list()
+        ggroups = list()
+        mgroups = list()
 
+        g = dict()
+        m = dict()
+
+        # validate 1 G code per group
         if 'G' in codes:
             for code in codes['G']:
-                if group_of['G'][code] in groups:
+                gname = self.group_of['G'][code]
+                if gname in ggroups:
                     raise Exception("more than one G code from same group")
                 else:
-                    groups.append(group_of['G'][code])
+                    ggroups.append(gname)
+                    g[gname] = code
+
+        # validate 1 M code per group, maximum 4 codes
+        if 'M' in codes:
+            for code in codes['M']:
+                mname = self.group_of['M'][code]
+                if mname in mgroups:
+                    raise Exception("more than one M code from same group")
+                else:
+                    mgroups.append(mname)
+                    m[mname] = code
+            if len(mgroups) > 4:
+                raise Exception("more than four M codes")
+
+        # evaluate expressions 
+        for letter in codes:
+            if letter == 'assigns': continue
+            if letter in 'GM': continue
+            #print(letter)
+            if self.debug: print(codes[letter])
+            self.mem[letter] = self.parser.expr_eval(codes[letter])
+            print(f'   {letter} = {self.mem[letter]}')
 
 
-    def __not_implemented(self, com):
-        self.warn.append(f'Gcode not implemented: lineno:{com["lineno"]} line:{com["line"]}')
+        # some funcs called by exec_order list will use thie
+        #if 'motion' in g:
+        #    self.active['motion'] = g['motion']
 
+        for name in self.group["G"]:
+            if name in g and name != 'non_modal':
+                self.active[name] = g[name]
+
+        for name in self.group["M"]:
+            if name in m and name != 'non_modal':
+                self.active[name] = m[name]
+
+        for a in self.active:
+            print("active", a, self.active[a])
+
+
+        # go through the todo list 
+        for thing, args in self.exec_order:
+            print("thing =", thing)
+            if type(thing) == str and thing in self.group["G"]:
+                print("   group G", thing, self.active[thing])
+                if thing in g:
+                    func, args = self.call_table['G'][g[thing]]
+                    #func, args = self.call_table['G'][self.active[thing]]
+                    self.__do_exec_func(codes, func, args)
+            elif type(thing) == str and thing in self.group["M"]:
+                print("   group M", thing, self.active[thing])
+                if thing in m:
+                    func, args = self.call_table['M'][m[thing]]
+                    #func, args = self.call_table['M'][self.active[thing]]
+                    self.__do_exec_func(codes, func, args)
+            elif str(type(thing)) == "<class 'method'>":
+                print("   func")
+                self.__do_exec_func(codes, thing, args)
+            else:
+                raise Exception(f'exec order: unknown thing {type(thing)}, {thing}')
+
+
+        # variable assignments 
+        if 'assigns' in codes:
+            for a in codes['assigns']:
+                if self.debug: print(a.name)
+                t = a.name.toks.pop(0)
+                if t.value != '#':
+                    raise Exception(f'Assignment. rhs does not have "#": ' + Gcode.where(t))
+                rhs = self.parser.expr_eval(a.name)
+                lhs = self.parser.expr_eval(a.expr)
+                if self.debug: print("assign:", "rhs=", rhs, "lhs=", lhs)
+                self.mem[int(rhs)] = lhs
+
+        print("mem:")
+        for a in self.mem:
+            print("    ", a, self.mem[a])
+        pass
+
+
+    def __do_exec_func(self, codes, func, args):
+        ae = list()
+        for arg in args:
+            print("arg =", arg)
+            if type(arg) == str:
+                argv = arg
+            elif type(arg) == int:
+                argv = arg
+            else:
+                argv = arg(codes)
+            print("argv =", argv)
+            ae.append(argv)
+        func(*ae)
+
+
+    def __do_motion(self, codes):
+        # all parameters are evaluated and in mem[]
+        # feeds and speed have been updated
+        # now do the thing ... linear or arc 
+
+        # set spindle and feed per the current motion group
+        self.state['S'] = self.spindle[self.active['motion']]
+        self.state['F'] = self.feed[self.active['motion']]
+
+        c = self.call_table['G'][self.active['motion']]
+        print("__do_motion", c)
+        func = c[0]
+        args = c[1]
+
+        self.__do_exec_func(codes, func, args)
+
+
+    def command_axis(self, codes):
+        return Axis(
+                    self.command_param('X', codes),
+                    self.command_param('Y', codes),
+                    self.command_param('Z', codes),
+                    self.command_param('A', codes),
+                    self.command_param('B', codes),
+                    self.command_param('C', codes)
+                   )
+
+    def current_pos(self) -> Axis:
+        return Axis(
+                    self.state['X'],
+                    self.state['Y'],
+                    self.state['Z'],
+                    self.state['A'],
+                    self.state['B'],
+                    self.state['C']
+                   )
+
+    def mock_delay(self, delay):
+        print(f'{"":30s}-------mock delay {delay} sec')
+        pass
+
+    def mock_move_to(self, axis, feed):
+        if self.active['distance_mode'] == 90:  # abs
+            self.state['X'] = axis.x
+            self.state['Y'] = axis.y
+            self.state['Z'] = axis.z
+            self.state['A'] = axis.a
+            self.state['B'] = axis.b
+            self.state['C'] = axis.c
+        elif self.active['distance_mode'] == 91:  # inc
+            print("move to incremental")
+            self.state['X'] += axis.x
+            self.state['Y'] += axis.y
+            self.state['Z'] += axis.z
+            self.state['A'] += axis.a
+            self.state['B'] += axis.b
+            self.state['C'] += axis.c
+        else:
+            raise Exception(f'error distance mode?: self.active["distance_mode"]')
+        self.update_shortcuts()
+
+    def generic_set(self, p, mode):
+        if not mode in self.ok[p]:
+            raise Exception(f'set_{p}: got {mode}: expected: {self.ok[p]}')
+        # self.active[groupname] = code
+        #self.active[p] = mode
+
+
+    def no_op(self):
+        pass
 
     # These are from rs274/NGC page 44 table 9
     # Representation 
@@ -1208,41 +1624,139 @@ class GcodeMachine:
         pass
     def end_canon(self):
         pass
-    def select_plane(self, plane:CANON_PLANE):
+
+    def set_plane(self, plane:CANON_PLANE):
+        self.generic_set('plane', plane)
         pass
-    def set_origin_offsets(self, x:float, y:float, z:float, a:float, b:float, c:float):
+
+    def command_param(self, letter, codes):
+        "return a value from the current command or from the current machine state"
+        val = 0
+        if letter in codes:
+            val = self.mem[letter]
+        elif letter in self.state:
+            val = self.state[letter]
+        else:
+            return 0
+        return val
+
+
+    def not_implemented(self, msg:str):
+        print("not implemented:", msg)
+ 
+ 
+    #def set_origin_offsets(self, x:float, y:float, z:float, a:float, b:float, c:float):
+    def set_origin_offsets(self, codes):
+        """Says to the machine: Your current position is x, y, z, a, b, c
+
+        XTool D1 usage is to relate the LED cross hair position
+        to the desired mahine (0,0).
+
+            G92 X17 Y1 (machine 0,0 is where the LED crosshair is)
+
+        At the end of the program, you may want to park the LED back at 0,0:
+
+            G0 X17 Y1
+        """
+
+        self.active['offset'] = self.command_axis(codes)
+
         pass
+
     def use_length_units(self, units:CANON_UNITS):
-        pass
+        self.generic_set('length_units', units)
+
+    def set_distance_mode(self, code, mode:CANON_DISTANCE_MODE):
+        self.generic_set('distance_mode', mode)
+        self.active['distance_mode'] = code
+
     # Free Space Motion
     def set_traverse_rate(self, rate:float):
         # desired rapid rate, machine may limit at a lower rate
         pass
-    def straight_traverse(self, x:float, y:float, z:float, a:float, b:float, c:float):
+
+    def straight_traverse(self, axis: Axis):
         # no cutting expected
         pass
 
     # Machining Attributes
-    def set_feed_rate(self, rate:float):
+    def set_feed_rate_mode(self, mode):
+        self.generic_set('feed_rate_mode', mode)
+        pass
+
+    def set_feed_rate(self, codes):
+        if 'F' in codes:
+            self.feed[ self.active['motion'] ] = self.mem['F']
+        # set rate to use for active mode
+        pass
+
+    def set_feed_reference(self, reference:CANON_FEED_REFERENCE):
+        # WORKPIECE or XYZ
         # ref mode is WORKPIECE
         #   units per minute along the path
         # ref mode is XYZ
         #   deg per minute around one axis
         pass
-    def set_feed_reference(self, reference:CANON_FEED_REFERENCE):
-        # WORKPIECE or XYZ
-        pass
     def set_motion_control_mode(self, mode:CANON_MOTION_MODE):
         # EXACT_STOP, EXACT_PATH, CONTINUOUS
         pass
-    def start_speed_feed_synch(self:float):
+    def start_speed_feed_synch(self):
         # for thread tapping
         pass
-    def stop_speed_feed_synch(self:float):
+    def stop_speed_feed_synch(self):
         # for not thread tapping
         pass
 
     # Machining Functions
+    def rapid(self, axis:Axis, f=None, s=None):
+        # some redundency here 
+        if f != self.feed[0]:
+            raise Exception(f'command parser error. feedrate mismatch')
+
+        self.mock_move_to(axis, self.feed[0])
+        print("---rapid---", axis, f, s)
+
+
+    def linear(self, axis:Axis, f=None, s=None):
+        # some redundency here 
+        if f != self.feed[1]:
+            raise Exception(f'command parser error. feedrate mismatch')
+
+        self.mock_move_to(axis, self.feed[1])
+        print("---linear---", axis, f, s)
+        pass
+
+    def move_absolute(self, axis:Axis, f=None, s=None):
+        """G53 move absolute using feed rate
+        from G0 or G1, whichever is active.
+        if active motion mode is not 0 or 1 then error
+        """
+        if self.active['motion'] == 0:
+            pass
+        elif self.active['motion'] == 1:
+            pass
+        else:
+            raise Exception(f'move_absolute: active motion mode is not G0 or G1: have mode = G{self.active["motion"]}')
+
+        self.mock_move_to(axis, self.feed[ self.active['motion'] ])
+ 
+
+    def arc_cw(self, x=None, y=None, z=None, a=None, b=None, c=None, r=None, i=None, j=None):
+        pass
+    def arc_ccw(self, x=None, y=None, z=None, a=None, b=None, c=None, r=None, i=None, j=None):
+        pass
+    def arc(self, dir=None, x=None, y=None, z=None, a=None, b=None, c=None, r=None, i=None, j=None):
+        # dir 'cw" or 'ccw'
+        # At least one axis word in the current working plane must be supplied
+        # x,y,z are the end point
+        # radius format:
+        #    r if supplied is the radius
+        # center format:
+        #    end point can be same as start point (circle)
+        #    i,j are offsets to the center, at least one required
+        pass
+
+
     def arc_feed(self, first_end:float, second_end:float,
                        first_axis:float, second_axis:float,
                        rotation:int, axis_end_point:float,
@@ -1253,9 +1767,26 @@ class GcodeMachine:
         # rotation poisitive is CCW
         # arc starts at current pos and ends at (first_end, second_end)
         pass
-    def dwell(self, seconds:float):
+
+    def do_dwell_command(self, codes):
+        # if G4 in codes then dwell self.mem[P] seconds
         # delay
-        pass
+        print("do_dwell_command", codes)
+        if 'G' in codes and 4 in codes['G']:
+            self.active['dwell'] = self.mem['P']   # G4
+            print("do_dwell_command")
+            self.mock_delay(self.command_param('P', codes))
+
+    def do_dwell(self, p):
+        # called for a G4,  p is from the command line, zero is not present
+        # delay
+        if p > 0:
+            self.active['dwell'] = p
+
+        print("do_dwell")
+        self.mock_delay(p)
+
+
     def ellipse_feed(self,
                        major:float, minor:float,
                        first_end:float, second_end:float,
@@ -1268,7 +1799,7 @@ class GcodeMachine:
         # rotation poisitive is CCW
         # arc starts at current pos and ends at (first_end, second_end)
         pass
-    def stop():
+    def stop(self):
         # come briefly to a stop after finishing the previous move
         pass
     def straight_feed(self, x:float, y:float, z:float, a:float, b:float, c:float):
@@ -1305,10 +1836,10 @@ class GcodeMachine:
         pass
 
     # Miscellaneous Functions
-    def clamp_axis(axis:CANON_AXIS):
+    def clamp_axis(self, axis:CANON_AXIS):
         # error is move is attemted on a clamed axis
         pass
-    def unclamp_axis(axis:CANON_AXIS):
+    def unclamp_axis(self, axis:CANON_AXIS):
         # error is move is attemted on a clamed axis
         pass
     def comment(self, s:str):
@@ -1346,12 +1877,14 @@ class GcodeMachine:
             self.warn.append(f"Found a start marker at line {self.markstart} but no stop marker")
         # get ready for a new program or shutdown
 
-    def set_cutter_radius_compensation(radius:float):
+    def set_cutter_radius_compensation(self, radius:float):
         pass
-    def start_cutter_radius_compensation(side:CANON_COMP_SIDE):
+    def start_cutter_radius_compensation(self, side:CANON_COMP_SIDE):
         pass
-    def stop_cutter_radius_compensation():
+    def stop_cutter_radius_compensation(self):
         pass
+
+
 
 class gcode_test:
     def __init__(self, debug=False) -> None:
@@ -1546,8 +2079,57 @@ class gcode_test:
         assert(self.gc.X == 654)
         self.gc.parse_inc(b'x654')
 
+
     def test_machine(self):
-        m = GcodeMachine()
+        close =    lambda val, want, lim=1e-6: abs(1.0 - float(val) / float(want)) < lim
+        absclose = lambda val, want, lim=1e-6: abs(float(want) - float(val)) < float(lim)
+        m = GcodeMachine(debug=True)
+        m.program_init(logger = self.toklog)
+        m.parse_inc(b'f[123*2]')
+        assert(m.F == 246)
+
+        m.parse_inc(b'G1 F600')
+        m.parse_inc(b'G0 F3000')
+
+        assert(m.feed[0] == 3000)
+        assert(m.feed[1] == 600)
+
+        m.parse_inc(b'G1 x10 f650')
+        assert(m.feed[1] == 650)
+        assert(m.feed[0] == 3000)
+        assert(m.X == 10)
+        assert(m.Y == 0)
+        m.parse_inc(b'G92 x17 y1')
+        assert(m.X == 17)
+        assert(m.Y == 1)
+
+        m.parse_inc(b'G1 x12.3 y3.14')
+        m.parse_inc(b'G0 x0.1 y0.2')
+        m.parse_inc(b'G0 x0.1 y0.2 G1', expect="more than one G code from same group")
+        m.parse_inc(b'M0 M1',           expect="more than one M code from same group")
+        m.parse_inc(b'M0 M6 M3 M7 M48', expect="more than four M codes")
+        assert(m.X == 0.1)
+        assert(m.Y == 0.2)
+
+        m.parse_inc(b'x0y0')
+        assert(m.X == 0)
+        assert(m.Y == 0)
+
+        m.parse_inc(b'g91')
+        m.parse_inc(b'G4 P0.100')
+        assert(m.active['dwell'] == 0.100)
+
+        m.parse_inc(b'G91 G0 X0.1 Y0.2')
+        m.parse_inc(b'X0.15 Y0.23')
+        assert(absclose(m.X, 0.25))
+        assert(absclose(m.Y, 0.43))
+
+        m.parse_inc(b'G90 G0 X0 Y0')
+        assert(absclose(m.X, 0.0))
+        assert(absclose(m.Y, 0.0))
+
+
+
 
     def toklog(self, kind:str, value:str, lineno:int, col:int):
         if not self.debug: return

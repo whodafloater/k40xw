@@ -172,6 +172,50 @@ gc_expression_test = dedent(f'''
         n0480 m2
         ''').strip().encode('utf-8')
 
+d1_pro_simple = dedent('''
+        # d1-pro HEAD
+        M17 S1
+        M207 S1
+        M106 S0
+        M205 X432 Y403
+        M101
+        G92 X0Y0
+        G0 F9600
+        G1 F1000
+        # date=2025_01_20_13_13_33
+        # version=2.3.24
+        # algorithmVersion=1.16.2
+        # gc={"size":{"w":432,"h":403}}
+        # gc={"offset":{"x":0,"y":0}}
+        # gc={"start":{"x":0,"y":0.0000}}
+        # gc={"keys":["x","y"],"rm":1}
+        # timeConfig={"vectorAccel":330,"bitmapAccel":3000,"thresholdAngle":91}
+        G90
+        G0 F3000
+
+
+        # d1 VECTOR HEAD
+
+        # motion_start
+        G90
+        # blockConfig={"powerFactor": 0.01, "isVector": true}
+        G0X0.100Y0.000
+        G1X24.535Y0.000S10F1200
+        G1X24.635Y0.100
+        G1X24.635Y14.535
+        G1X24.535Y14.635
+        G1X0.100Y14.635
+        G1X0.000Y14.535
+        G1X0.000Y0.100
+        G1X0.100Y0.000
+
+        # END
+        # d1-pro TAIL
+        G90
+        G0 X0Y0
+        M18
+        ''').strip().encode('utf-8')
+
 if __name__ == '__main__':
     print("Nothing to do here. Stop running me!")
     exit(1)

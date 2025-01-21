@@ -594,6 +594,8 @@ class Plotter(tklib.Frame):
  
     def create_nav(self, frame):
         tklib.Push(frame)
+
+        tklib.Frame(name='navbut').pack_configure(expand=True, fill='x')
         home = tklib.Button(text="zoom reset", cmd=self.reset_zoom, name='reset')
         home.pack_configure(side='left')
 
@@ -618,13 +620,17 @@ class Plotter(tklib.Frame):
 
         #tklib.Button(text="update conv", cmd=self._update_converters
         #   ).pack_configure(side='left')
+        tklib.Pop()
 
-
+        tklib.Frame(name='navstat').pack_configure(expand=True, fill='x')
         status = tklib.Label(text="status", name='status')
         status.pack_configure(side='left')
 
         xy = tklib.Label(text="0,0", textvariable=self.xy_readout, name='readout')
         xy.pack_configure(side='right')
+
+        tklib.Pop()
+
         tklib.Pop(frame)
 
 

@@ -38,6 +38,10 @@ class Xmsg:
 class Machine:
     def __init__(self, nogui=False, host=None, port=None, debug=False, *args, **kwargs):
 
+        # LED slow blinking blue    working on GCODE.
+        # LED fast blinking red     was working, timeed out waiting for gcode, then transition to state 0
+        # LED solid green           working state = 0 
+
         print(args)
         print(kwargs)
 
@@ -93,6 +97,7 @@ class Machine:
 
 
         self.tmp_gcode = []
+        self.tmp_cmd = []
 
         self.q = queue.PriorityQueue()
         self.lock = threading.Lock()
@@ -191,6 +196,10 @@ class Machine:
             l.bind('<3>', lambda e: l.configure(text='Clicked right mouse button'))
             l.bind('<Double-1>', lambda e: l.configure(text='Double clicked'))
             l.bind('<B3-Motion>', lambda e: l.configure(text='right button drag to %d,%d' % (e.x, e.y)))
+
+    def new_cmd(self, *args, **kwargs):
+        if self.nogui: return
+        self.log.insert('end', f'tick:{self.tcount.get()}: cmd, {self.tmp_cmd[0]}\n')
 
     def new_gcode(self, *args, **kwargs):
         if self.nogui: return
@@ -383,6 +392,10 @@ def cmd(*args, **kwargs):
     cmd = request.args.get('cmd')
     print(f'cmd={cmd}')
 
+    machine.tmp_cmd = []
+    machine.tmp_cmd.append(str(cmd))
+    machine.que(("new_cmd"))
+
     d = dict()
     d['result'] = 'ok'
 
@@ -423,6 +436,7 @@ def cnc_data(*args, **kwargs):
     d = dict()
     d['result'] = 'ok'
 
+    # /cnc/data?action=stop
     if request.method == 'GET':
         action = request.args.get('action')
         print(f'action={action}')

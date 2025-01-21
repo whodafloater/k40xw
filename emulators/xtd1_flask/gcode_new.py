@@ -35,12 +35,12 @@ class FuncCall(NamedTuple):
     name: Token
     args: list[Token|Strip]
 
-class Expr(NamedTuple):
+class BExpr(NamedTuple):
     toks: list[Token|FuncCall]
 
 class Assign(NamedTuple):
     name: Strip
-    expr: Expr|Strip
+    expr: BExpr|Strip
 
 class GcodeParser():
     ''' A G-Code Parser based on RS274NGC
@@ -72,7 +72,7 @@ class GcodeParser():
         s.arity['unary_fn'] = 1
         s.arity['binary_fn'] = 2
         s.arity['ternary_fn'] = 3
-        s.arity['ATAN'] = [Expr, Token , Expr]
+        s.arity['ATAN'] = [BExpr, Token , BExpr]
         # example: ATAN [ Y expr ] / [ X expr ]  we accept expr op expr as args
 
         s.precedence = dict()
@@ -375,7 +375,7 @@ class GcodeParser():
 
 
 
-    def expr_show(self, e:Expr|FuncCall|Strip|Token|int|float = 0):
+    def expr_show(self, e:BExpr|FuncCall|Strip|Token|int|float = 0):
         print('\n\n--- expr_show ---')
         s = GcodeParser.reconstruct(e)
         print(s)
@@ -383,18 +383,18 @@ class GcodeParser():
         return
 
 
-    def expr_eval(self, e:Expr|FuncCall|Strip|Token|int|float = 0, i=None):
+    def expr_eval(self, e:BExpr|FuncCall|Strip|Token|int|float = 0, i=None):
         result, i = self._expr_eval(e = e, i = i)
         return result
     
-    def _expr_eval(self, e:Expr|FuncCall|Strip|Token|int|float = 0, i=None):
+    def _expr_eval(self, e:BExpr|FuncCall|Strip|Token|int|float = 0, i=None):
         if self.debug: print('expr_eval:', GcodeParser.reconstruct(e))
 
-        if type(e) == Expr:
+        if type(e) == BExpr:
             pass
         #  a plain FuncCall must be wrapped in [ ]
         elif type(e) == FuncCall:
-            e = Expr(toks = [
+            e = BExpr(toks = [
                   Token('BO', '[', 0, 0),
                   e, 
                   Token('BC', ']', 0, 99),
@@ -455,15 +455,9 @@ class GcodeParser():
                if self.debug: print("func name:", t.name)
                for argi in range(len(t.args)):
                    if self.debug: print("func arg:", argi, t.args[argi])
-                   if type(t.args[argi]) == Expr:
-                       arg, __x = self._expr_eval(t.args[argi])
-                       stack.append(arg)
-                       a_val = len(stack)-1
-                   elif type(t.args[argi]) == Token:
-                       stack.append(t.args[argi].value)
-                       a_val = len(stack)-1
-                   else:
-                       raise Exception(f'parser error: func arg, unknown type: {type(t.args[argi])}: ' + + GcodeParser.where(t))
+                   arg, __x = self._expr_eval(t.args[argi])
+                   stack.append(arg)
+                   a_val = len(stack)-1
 
                if self.debug: GcodeParser.show_stack(e, stack, brain)
                # then fall thru to operate on them
@@ -564,7 +558,7 @@ class GcodeParser():
     @staticmethod
     def reconstruct(thing):
         s = ''
-        if type(thing) == Expr:
+        if type(thing) == BExpr:
             for t in thing.toks:
                 if type(t) == Token:
                     s = s + ' ' + str(t.value)
@@ -808,7 +802,7 @@ class GcodeParser():
             if func_name in self.arity:
                 if self.debug: print("arity for", func_name, self.arity[func_name])
                 for argt in self.arity[func_name]:
-                    if argt == Expr:
+                    if argt == BExpr:
                         arg, tok = self.collect_bexpression(tokgen, tok)
                         args.append(arg)
                     elif argt == Token:
@@ -817,7 +811,7 @@ class GcodeParser():
                     else:
                         raise Exception(f'unknown type airty' + GcodeParser.where(t) + self.arity[func_name])
 
-            # The default arity is a sequence of Expr
+            # The default arity is a sequence of BExpr
             else:
                  for argc in range(self.arity[func_type]):
                      arg, tok = self.collect_bexpression(tokgen, tok)
@@ -880,7 +874,7 @@ class GcodeParser():
         """ B expressions are bound by [ ]
             tokgen - a generator that yeilds <Token>
             tok - current token, should be a "["
-            returns a <Expr>
+            returns a <BExpr>
         """
         lineno = tok.lineno
         if self.debug: print(f'{"":20s} bepression start:' + tokenstr(tok))
@@ -940,7 +934,7 @@ class GcodeParser():
         else:
             raise Exception(f'expression is missing closing "]":' + GcodeParser.where(tok))
 
-        return Expr(e), tok
+        return BExpr(e), tok
 
 
     @staticmethod
@@ -1113,12 +1107,14 @@ class GcodeMachine:
         self.group_of: dict
         self.state: dict
         self.status: dict
+        self.config: dict
         self.mem: dict
 
 
         self.debug = debug
         self.state = dict()
         self.status = dict()
+        self.config = dict()
         self.mem = dict()
 
         if parser == None:
@@ -1201,6 +1197,7 @@ class GcodeMachine:
                                     # G28 return to home
                                     # G30 return to secondary home
                                     # G53 move absolute
+        self.active['user_config'] = 101
 
         # 10, 28, 30, and 92 axis words suspend motion group axis settings
 
@@ -1210,7 +1207,8 @@ class GcodeMachine:
         s.group['M']['spindle_turning'] = (3, 4, 5)
         s.group['M']['coolant'] = (7, 8, 9)
         s.group['M']['speed_feed_override'] = (48, 49)
-        s.group['M']['user_defined_m'] = (17, 18, 97, 106, 205)
+        s.group['M']['user_defined_m'] = (17, 18, 97, 106)
+        s.group['M']['user_config'] = (101, 205, 207)
 
         for code in s.group['G']['motion']:
             self.feed[code] = 0
@@ -1230,12 +1228,15 @@ class GcodeMachine:
 
         # parameter access functions used in call tables
         f = lambda codes : self.command_param('F', codes)
-        s = lambda codes : self.command_param('S', codes)
+        S = lambda codes : self.command_param('S', codes)
         t = lambda codes : self.command_param('T', codes)
         p = lambda codes : self.command_param('P', codes)
         r = lambda codes : self.command_param('R', codes)
         i = lambda codes : self.command_param('I', codes)
         j = lambda codes : self.command_param('J', codes)
+        x = lambda codes : self.command_param('X', codes)
+        y = lambda codes : self.command_param('Y', codes)
+
         all_codes = lambda codes : codes
         cmd_axis = lambda codes : self.command_axis(codes)
         gopt = lambda code : re.sub(r'^\d+\.', '', code)  # digits after '.'
@@ -1249,9 +1250,10 @@ class GcodeMachine:
         #                    dewell is the only special case. 
         #     func, args  -  run the func with evaluated args
         self.exec_order: list = [
+                 [ 'user_config', []],
                  [ 'feed_rate_mode',    []],
                  [ self.set_feed_rate,          [all_codes]],
-                 [ self.set_spindle_speed, [s]],
+                 [ self.set_spindle_speed, [S]],
                  [ self.select_tool,       [t]],
                  [ 'tool_change',       []],
                  [ 'spindle_turning',   []],
@@ -1274,16 +1276,16 @@ class GcodeMachine:
 
         call_builder = list()
         call_builder = [
-            [ 'G',  0, self.rapid,          [cmd_axis, f, s]],
-            [ 'G',  1, self.linear,         [cmd_axis, f, s]],
+            [ 'G',  0, self.rapid,          [cmd_axis, f, S]],
+            [ 'G',  1, self.linear,         [cmd_axis, f, S]],
             [ 'G',  2, 'arc_cw',         [cmd_axis, r, i, j]],
             [ 'G',  3, 'arc_ccw',        [cmd_axis, r, i, j]],
 
             [ 'G', 38, 'probe',          [cmd_axis, gopt, ]],
 
             [ 'G', 80, 'cancel_modal_motion', []],
-            [ 'G', 81, 'drill_cycle',       [cmd_axis, r, f, s]],
-            [ 'G', 82, 'drill_cycle_dwell', [cmd_axis, r, f, s, p]],
+            [ 'G', 81, 'drill_cycle',       [cmd_axis, r, f, S]],
+            [ 'G', 82, 'drill_cycle_dwell', [cmd_axis, r, f, S, p]],
 
 
             #[ 'G',  4, self.do_dwell,          [p]],
@@ -1314,8 +1316,11 @@ class GcodeMachine:
             [ 'M', 0, self.not_implemented,   ['M0']],
             [ 'M', 17, self.xtd1_enable,  []],
             [ 'M', 18, self.xtd1_disable,  []],
-            [ 'M', 97, self.xtd1_cross_hair_sticky, [s]],
-            [ 'M', 106, self.xtd1_cross_hair,  [s]],
+            [ 'M', 97, self.xtd1_cross_hair_sticky, [S]],
+            [ 'M', 101, self.xtd1_M101,  []],
+            [ 'M', 106, self.xtd1_cross_hair,  [S]],
+            [ 'M', 205, self.xtd1_extents,  [x,y]],
+            [ 'M', 207, self.xtd1_M207,  [S]],
            ]
 
 
@@ -1716,32 +1721,6 @@ class GcodeMachine:
         # for not thread tapping
         pass
 
-    def xtd1_enable(self):
-        # M17 steppers enable, led green
-        self.status["working"] = 1
-        self.state["led_cross"] = 0
-        # xtd1 will timeout after a few sec of no actvity and disable
-        pass
-
-    def xtd1_disable(self):
-        # M18
-        self.status["working"] = 0
-        self.state["led_cross"] = 0
-        pass
-
-    def xtd1_cross_hair(self, s):
-        # M106S1  cross on, reset by M17 and M18
-        if s >= 1:
-           self.status["led_cross"] = 1
-        else:
-           self.status["led_cross"] = 0
-
-    def xtd1_cross_hair_sticky(self, s):
-        # M97S0  turns cross on when idle. persistent across power cycles
-        # M97S1  turns off
-        if s == 1:
-           self.status["led_cross"] = 1
-
 
     # Machining Functions
     def rapid(self, axis:Axis, f=None, s=None):
@@ -1920,6 +1899,54 @@ class GcodeMachine:
     def stop_cutter_radius_compensation(self):
         pass
 
+    # xtool specific
+    #   when running a file via the button, /progress returns:
+    #      progress  indicates percent, 0 to 100
+    #      working   becomse a time counter, looks like ms. It keeps counting after the file is done
+    #      lines     indicates current gcode line
+
+    #   to reset the timer: upload a new cut file, press the button.
+    #
+    def xtd1_enable(self):
+        # M17 steppers enable, led green
+        self.status["working"] = 1
+        self.state["led_cross"] = 0
+        # xtd1 will timeout after a few sec of no actvity and disable
+        pass
+
+    def xtd1_disable(self):
+        # M18
+        self.status["working"] = 0
+        self.state["led_cross"] = 0
+        pass
+
+    def xtd1_cross_hair(self, s):
+        # M106S1  cross on, reset by M17 and M18
+        if s >= 1:
+           self.state["led_cross"] = 1
+        else:
+           self.state["led_cross"] = 0
+
+    def xtd1_cross_hair_sticky(self, s):
+        # M97S0  turns cross on when idle. persistent across power cycles
+        # M97S1  turns off
+        if s == 1:
+           self.state["led_cross"] = 1
+
+    def xtd1_extents(self, x, y):
+        # M205 X432 Y403
+        self.config["extentx"] = x
+        self.config["extenty"] = y
+
+    def xtd1_M207(self, s):
+        # ? M207 S1
+        pass
+
+    def xtd1_M101(self):
+        # ?
+        pass
+
+
 
 
 class gcode_test:
@@ -1936,6 +1963,7 @@ class gcode_test:
     def test_expr_parse(self):
         ep = lambda e: self.gc.parse_expr(e)
         close = lambda e, want, lim=1e-6: abs(1 - float(self.gc.parse_expr(e)) / want) < lim
+        absclose = lambda e, want, lim=1e-6: abs(float(want) - float(self.gc.parse_expr(e))) < float(lim)
         error = lambda e, want: abs(1 - float(self.gc.parse_expr(e)) / want)
 
         assert( ep(b'1') == 1)
@@ -1962,6 +1990,7 @@ class gcode_test:
         assert( close( b'[sin[30]]', 0.5 ))
         assert( close( b'sqrt[3]', 1.732051 ))
         assert( close( b' atan[1.7321]/[1.0]', 60.0, 1e-3 ))
+        assert( absclose( b' sin[[2.0+1.14159]*180/3.14159]', 0.0, 1e-3 ))
 
     def test_expr(self):
         close =    lambda val, want, lim=1e-6: abs(1.0 - float(val) / float(want)) < lim

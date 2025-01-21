@@ -23,6 +23,8 @@ import animator
 
 import path
 
+import gcode_new as gcode
+
 def point_scale(xy, scale, offset=None):
     if offset==None:
         if len(xy) == 4:
@@ -103,6 +105,8 @@ class SketchControl(tklib.Frame):
         tklib.Pop(sim)
 
         tklib.Pop()
+
+
 
     def generate_gcode(self):
         self.plotter.export_gcode()
@@ -205,11 +209,11 @@ class SketchControl(tklib.Frame):
         power = 5 * self.spindle_power_scale
 
         gcode = []
-        gcode.append(f'M17 S1\n')
-        gcode.append(f'M205 X426 Y403\n')  # file uploads do not work with out this
+        gcode.append(f'M17 S1\n')     # S value appears a dont care. can ommit the S
+        gcode.append(f'M205 X426 Y403\n')  # this does have any affect if program small value
         gcode.append(f'M101\n')
-        gcode.append(f'G90\n')
-        gcode.append(f'G92 X0 Y0\n')
+        gcode.append(f'G90\n')        # abs coords
+        gcode.append(f'G92 X0 Y0\n')  # tells machine head is currently at 0,0
         gcode.append(f'G0 F{rapid}\n')
         gcode.append(f'G1 F{feed}\n')
         gcode.append(f'G1 S{power}\n')
@@ -371,7 +375,54 @@ class Plotter(tklib.Frame):
         # wait for the configure event to do anything with the canvas
         return
 
+
+    def connect_machine(self, machine):
+        self.machine = machine
+        m = self.machine
+        m.program_init()
+        #m.load_file('xtoolsample.gc')
+        #m.load_file('led_box.gcode')
+
+    def test_file(self):
+        m = self.machine
+        m.program_init()
+        m.load_file('xtoolsample.gc')
+        #m.load_file('led_box.gcode')
+        while m.file_step() == 0:
+           print("plotter: test_file: ", m.status)
+           print("plotter: test_file: ", m.state)
+           s = m.state
+           feed = s['F']/60.0
+           if feed <= 0:
+               continue
+               raise Exception('feed <= 0')
+           self.anim.add_move(s['X'], s['Y'], s['F']/60.0, s['S']/10.0, s['led_cross'])
+
+        self.anim.turbo(10)
+        self.anim.start()
+
+
+    def test_scribble(self):
+        self.anim.reset()
+        m = self.machine
+        m.program_init()
+        m.load_gcode(self.sk.gcodeb)
+        while m.gcode_step() == 0:
+           print("plotter: test_file: ", m.status)
+           print("plotter: test_file: ", m.state)
+           s = m.state
+           feed = s['F']/60.0
+           if feed <= 0:
+               continue
+               raise Exception('feed <= 0')
+           self.anim.add_move(s['X'], s['Y'], s['F']/60.0, s['S']/10.0, s['led_cross'])
+
+        self.anim.turbo(10)
+        self.anim.start()
+
+
     def test_anim(self):
+        self.anim.reset()
         self.anim.add_move(200, 100, 50, 0, 1)
         self.anim.add_move(200, 150, 50, 5, 0)
         self.anim.add_move(150, 150, 50, 5, 0)
@@ -387,8 +438,13 @@ class Plotter(tklib.Frame):
     def tick(self):
         self.headpos[0], self.headpos[1], power, led = self.anim.compute_frame(time.time())
         if not self.startup:
-            self.move_carrige(*self.headpos, power, led)
+            if self.last_head != (self.headpos[0], self.headpos[1], power, led):
+                self.move_carrige(*self.headpos, power, led)
+                self.last_head = (self.headpos[0], self.headpos[1], power, led)
             pass
+        else:
+            self.last_head = (self.headpos[0], self.headpos[1], power, led)
+            
         self.after(30, self.tick)
         #self.after(1000, self.tick)
 
@@ -404,14 +460,16 @@ class Plotter(tklib.Frame):
         self.c.moveto('carrige', ccx, ccy)
         self.c.moveto('led',     cledx, cledy)
 
-        if led:
+        ledfill = self.c.itemconfigure('led')['fill']
+        if led and ledfill != 'red':
             self.c.itemconfigure('led', fill='red')
-        else:
+        elif not led and ledfill != 'gray':
             self.c.itemconfigure('led', fill='gray')
 
-        if power > 0:
+        laserfill = self.c.itemconfigure('laser')['fill']
+        if power > 0 and laserfill != 'orange':
             self.c.itemconfigure('laser', fill='orange')
-        else:
+        if power == 0 and laserfill != 'gray':
             self.c.itemconfigure('laser', fill='gray')
 
         clasx, clasy = self.fwc(wx - self.laser_size + self.laser_offset[0],
@@ -550,6 +608,12 @@ class Plotter(tklib.Frame):
         test.pack_configure(side='left')
 
         test = tklib.Button(text="test anim", cmd=self.test_anim)
+        test.pack_configure(side='left')
+
+        test = tklib.Button(text="test file", cmd=self.test_file)
+        test.pack_configure(side='left')
+
+        test = tklib.Button(text="test scrib", cmd=self.test_scribble)
         test.pack_configure(side='left')
 
         #tklib.Button(text="update conv", cmd=self._update_converters
@@ -900,7 +964,13 @@ def plotter_test(args):
     debug = args['debug']
     app = tklib.App('plotter test', debug=debug)
 
-    Plotter(debug=debug)
+    p = Plotter(debug=debug)
+
+    m = gcode.GcodeMachine(debug=False)
+    m.program_init()
+
+    p.connect_machine(m)
+
 
     tklib.report_stack()
 

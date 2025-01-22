@@ -861,9 +861,15 @@ class Scrollbars:
                 scrolly.grid(row=0, column=1, sticky='ns')
                 self.configure(yscrollcommand=scrolly.set)
 
-# class Canvas(tk.Canvas, Scrollbars):
-#     def __init__(self, **kwargs):
-#         self.add_scrollbars(Canvas, scroll='', **kwargs)
+
+class Progressbar(ttk.Progressbar):
+    """Create a Label object."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(App.stack[-1], *args, **kwargs)
+
+        pack_or_grid(self)
+
 
 
 class Treeview(ttk.Treeview):
@@ -1214,6 +1220,10 @@ if __name__ == '__main__':
     #c.pack_configure(side='right', expand=True, fill='both')
 
     Pop()  # back to main frame
+
+    percent_complete = tk.IntVar(name="progress", value=0)
+    Progressbar(variable=percent_complete).pack_configure(fill='x')
+
     Pop()  # back to top level window
 
     # now were packing below the main fraim
@@ -1225,4 +1235,22 @@ if __name__ == '__main__':
 
     cb2.rain.trace_variable("w", rain_changed)
 
+    cfgcount = 0
+    # do stuff each time the window is rendered
+    def on_configure(e):
+        global cfgcount
+        cfgcount += 1
+        log2.insert('end', f"window configured {cfgcount}\n")
+
+    def on_tick():
+        percent_complete.set( percent_complete.get() + 1.0 )
+        if percent_complete.get() == 50:
+            cb2.rain.set(True)
+        if percent_complete.get() == 70:
+            cb2.rain.set(False)
+        app.root.after(30, on_tick)
+
+    app.root.bind('<Configure>', on_configure)
+
+    on_tick()
     app.run()
